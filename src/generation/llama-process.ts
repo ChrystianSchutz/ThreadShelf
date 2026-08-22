@@ -42,7 +42,7 @@ const deviceCache = new Map<string, Promise<LlamaDeviceInspection>>();
 const MAX_RUNTIME_LOG_BYTES = 4 * 1024 * 1024;
 const MAX_CHAT_ERROR_LOG_CHARS = 12_000;
 
-interface LlamaDeviceInspection {
+export interface LlamaDeviceInspection {
   readonly supported: boolean;
   readonly devices: readonly LlamaDeviceInfo[];
   readonly raw: string;
@@ -129,7 +129,7 @@ export const parseLlamaDeviceOutput = (output: string, exitCode = 0): LlamaDevic
   };
 };
 
-const inspectLlamaDevices = (executable: string): Promise<LlamaDeviceInspection> => {
+export const inspectLlamaDevices = (executable: string): Promise<LlamaDeviceInspection> => {
   const cached = deviceCache.get(executable);
   if (cached) return cached;
   const inspection = new Promise<LlamaDeviceInspection>((resolveInspection) => {

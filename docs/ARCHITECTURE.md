@@ -37,6 +37,10 @@ Created chat -> internal __threads namespace -> generation provider -> persisted
 
 - Own HTTP-specific validation, upload handling, and NDJSON progress streams.
 - Delegate reusable behavior to `src/services/` and `src/store.ts`.
+- Wrap every long download in `abortOnDisconnect` (`stream-abort.ts`), which
+  listens for both `req`'s `aborted` and `res`'s `close` — a browser cancelling a
+  `fetch` only fires the latter, and missing it leaves the server downloading
+  gigabytes after the user pressed Cancel.
 
 `src/services/`
 
@@ -94,9 +98,24 @@ Created chat -> internal __threads namespace -> generation provider -> persisted
 - Maps validated CPU/GPU/hybrid/multi-GPU profiles to upstream llama.cpp flags.
 - Provides a loopback-only, directory-only filesystem browser for model roots.
 - Keeps OpenRouter API keys in environment/session memory, never persisted config.
-- Contains the explicit-consent llama.cpp release installer primitives.
+- Contains the explicit-consent llama.cpp release installer primitives, including
+  the `nightly-tag.txt` resolution that finds the release actually carrying
+  binaries (`llama-install.ts`).
 - Owns created-chat lifecycle and per-thread generation leases in
   `src/generation/threads.ts`.
+- Browses the public Hugging Face GGUF catalog read-only, without a token, and
+  detects gated repositories up front (`model-catalog.ts`).
+- Plans and fetches catalog models into `downloadDirectory`, verifying each file
+  against its LFS `oid` before moving it into place (`model-download.ts`).
+- Shares one resumable, hash-verifying downloader between runtime archives and
+  models; a cancelled transfer keeps its `.part` file, any other failure deletes
+  it (`downloader.ts`).
+- Detects accelerators and RAM and turns a byte size into a single
+  fits/tight/too-large verdict used by every surface (`hardware.ts`).
+- Builds the one-screen setup plan, fingerprints exactly what it would fetch, and
+  runs it (`quick-setup.ts`). The plan is always rebuilt server-side and matched
+  against the approved fingerprint, so a client can never hand the server a URL
+  to fetch and execute.
 
 `mcp/server.ts`
 
@@ -215,6 +234,11 @@ Core routes:
 - `/api/generation/threads` list/create/get/rename/delete (**Experimental Alpha**, loopback only)
 - `POST /api/generation/chat` (**Experimental Alpha**, loopback only)
 - `POST /api/generation/chat/stream` (**Experimental Alpha**, loopback-only NDJSON)
+- `GET /api/generation/hardware` (**Experimental Alpha**, loopback only)
+- `GET /api/generation/catalog/search` / `GET /api/generation/catalog/model` (**Experimental Alpha**, loopback only)
+- `POST /api/generation/catalog/download` (**Experimental Alpha**, loopback-only NDJSON, cancellable)
+- `GET /api/generation/setup/plan` (**Experimental Alpha**, loopback only)
+- `POST /api/generation/setup/run` (**Experimental Alpha**, loopback-only NDJSON; needs `confirm` plus the approved `fingerprint`)
 
 ## Testing Layers
 

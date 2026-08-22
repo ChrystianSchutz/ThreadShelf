@@ -246,3 +246,19 @@ export const downloadFile = (
   a.remove();
   URL.revokeObjectURL(url);
 };
+
+/** Byte sizes for model files: GB once past a gigabyte, MB below it. */
+export const fmtBytes = (bytes: number | undefined): string => {
+  if (!bytes || bytes <= 0) return '—';
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(bytes >= 10 * 1024 ** 3 ? 0 : 1)} GB`;
+  if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;
+  return `${Math.round(bytes / 1024)} KB`;
+};
+
+/** Download counts in the compact form catalogs use: 12.4M, 58k, 940. */
+export const fmtCount = (value: number | undefined): string => {
+  if (!value || value <= 0) return '0';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1000) return `${Math.round(value / 1000)}k`;
+  return String(value);
+};

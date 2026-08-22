@@ -21,6 +21,15 @@ transmits the selected archive's or created chat's complete `user` and
 `assistant` turns plus the prompt to OpenRouter. Imported and locally generated
 `thinking` turns are deliberately omitted.
 
+Two further network surfaces exist, and neither carries conversation content:
+
+- **GitHub Releases** (`ggml-org/llama.cpp`) — release metadata; archives only
+  after an explicit `--install`/`--url` or a confirmed setup plan.
+- **Hugging Face Hub** — catalog metadata and GGUF downloads, on request.
+
+Both are opt-in, both are described below, and neither sees a single turn of a
+conversation.
+
 ## Created chats
 
 The **New chat** action opens a saved-by-default draft without creating an empty
@@ -85,6 +94,28 @@ Generation config schema 2 changes both routing restrictions to opt-in. Older,
 unversioned config files created while these flags defaulted to `true` are migrated
 to `false`; a user can explicitly enable either policy again in Settings.
 
+## Guided setup
+
+**Settings → Conversation generation → Set up local generation** resolves one
+plan covering both halves of a first run — a `llama.cpp` build for the detected
+platform/accelerator and a GGUF model sized for it — and shows every URL,
+SHA-256 digest, size, and destination before anything is fetched. One
+confirmation runs the plan; Cancel aborts an in-flight transfer.
+
+Two properties make that single button press safe:
+
+- The plan is rebuilt **server-side** on `POST /api/generation/setup/run`. The
+  client sends a variant, model id, quantization, and release tag — never a URL
+  to fetch and execute.
+- The rebuilt plan is compared against `quickSetupFingerprint`, the digest of
+  exactly what the user approved (versions, digests, sizes). A mismatch — a
+  moved nightly build, a changed catalog, a different VRAM reading — returns
+  `409` with the new plan instead of downloading something else.
+
+A step whose artifact is already present is reported as `reuse` rather than
+`download`, so re-running setup after a partial run does not refetch what is
+there.
+
 ## llama.cpp discovery and installation
 
 ThreadShelf looks for `llama-server` in configured environment variables, `PATH`,
@@ -137,6 +168,20 @@ npm run setup:llama -- -- --url https://host/build.zip --sha256 64_HEX_DIGEST --
 Only `.zip`, `.tar.gz`, and `.tgz` archives are accepted. A missing custom
 checksum produces a warning. Nothing in this flow downloads a GGUF model.
 
+### How a release is resolved
+
+Upstream publishes stable semver releases (`v0.2.0`) that carry **no binaries**
+and mark the nightly build in a `nightly-tag.txt` asset, while the archives live
+in `bNNNNN` releases flagged as pre-releases. GitHub's `/releases/latest`
+therefore points at a release with nothing to install. `resolveLlamaRelease`
+follows the `nightly-tag.txt` pointer to the real build and falls back to a scan
+of recent releases if that asset is missing or malformed. An explicit `--tag`
+pins the lookup and is rejected if that release carries no llama.cpp binaries.
+
+Release metadata is fetched anonymously. Set `GITHUB_TOKEN` (or `GH_TOKEN`) to
+raise the rate limit; a limited response reports that explicitly instead of
+failing opaquely.
+
 Upstream references: [llama.cpp releases](https://github.com/ggml-org/llama.cpp/releases),
 [MIT license](https://github.com/ggml-org/llama.cpp/blob/master/LICENSE), and
 [`llama-server` documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
@@ -173,6 +218,50 @@ zero-priced catalog entries. Availability and rate limits can still change.
 
 References: [OpenRouter model sorting](https://openrouter.ai/docs/guides/overview/models),
 [free variants](https://openrouter.ai/docs/guides/routing/model-variants/free).
+
+## Model catalog and downloads
+
+The catalog is a read-only browser over the **public** Hugging Face API
+(`https://huggingface.co`). It lists GGUF repositories, their quantizations, file
+sizes, licence, and context length. No token is needed for public repositories;
+requests are cached briefly and time out rather than hanging.
+
+Each quantization carries a server-side fit verdict from `judgeFit`, so the UI
+and the setup plan always agree on one answer:
+
+| Verdict     | Meaning                                                       |
+| ----------- | ------------------------------------------------------------- |
+| `fits`      | Within the detected accelerator budget.                       |
+| `tight`     | Above that budget but within system RAM headroom; partly CPU. |
+| `too-large` | Beyond RAM headroom.                                          |
+
+Repositories from `unsloth`, `lmstudio-community`, `bartowski`, `ggml-org`,
+`Qwen`, `google`, and `mistralai` are flagged as known publishers. The flag is
+informational; it grants no extra trust to the download path.
+
+Downloads land in `downloadDirectory` — `.threadshelf/models` by default,
+override with `THREADSHELF_MODELS_PATH`. That directory is always part of
+`effectiveModelDirectories`, so a downloaded model is discoverable without any
+further configuration, and it is gitignored.
+
+Every file is fetched by the shared resumable downloader and verified against the
+repository's LFS `oid` (its SHA-256) **before** it is moved into place. A
+cancelled transfer keeps its `.part` file so the next attempt resumes; any other
+failure deletes it.
+
+Gated repositories are detected up front, marked in the UI, and refused with a
+clear message unless `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set in the
+server `.env` — accept the repository's licence on Hugging Face first. When a
+token is configured it is sent with every Hugging Face request; without one,
+public repositories still work.
+
+Both streaming routes (`/catalog/download`, `/setup/run`) are wrapped in
+`abortOnDisconnect`. Listening only for `req`'s `aborted` is not enough: a
+browser cancelling a `fetch` fires `res`'s `close`, and missing it leaves the
+server downloading gigabytes after the user pressed Cancel.
+
+No conversation content is ever sent to Hugging Face — only catalog metadata
+requests and file downloads.
 
 ## OpenRouter API key
 
@@ -302,6 +391,12 @@ prompt**. They disappear when the tab session ends.
 
 All routes are **Experimental Alpha**:
 
+- `GET /api/generation/hardware` — detected accelerators, RAM, and model budget;
+- `GET /api/generation/catalog/search?q=&sort=downloads|likes|trending|recent&limit=&author=` — Hugging Face GGUF search plus the hardware profile;
+- `GET /api/generation/catalog/model?id=<owner/repo>` — one repository, its quantizations with fit verdicts, and whether a token is configured;
+- `POST /api/generation/catalog/download` — NDJSON `plan`, `progress`, `done`, and `error` events; cancelling the request aborts the transfer;
+- `GET /api/generation/setup/plan?variant=&model=&quant=` — the resolved one-click plan and its fingerprint;
+- `POST /api/generation/setup/run` — runs a plan; requires `confirm: true` and the approved `fingerprint`, returns `409` with a new plan on mismatch;
 - `GET /api/generation/config` — redacted settings and provider availability;
 - `PUT /api/generation/config` — update paths, privacy flags, and a session key;
 - `GET /api/generation/models?provider=llama-cpp|openrouter` — dynamic models and runtime state;

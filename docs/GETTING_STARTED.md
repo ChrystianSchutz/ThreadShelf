@@ -174,6 +174,8 @@ Runtime data is local:
 - `.uploads/` - uploaded source files.
 - `.collections.json` - remembered manual collections.
 - `.threadshelf/generation.json` - non-secret Experimental Alpha generation settings.
+- `.threadshelf/tools/` - managed `llama.cpp` builds.
+- `.threadshelf/models/` - models downloaded from the catalog (`THREADSHELF_MODELS_PATH`).
 - `.tmp-*` - test temp folders.
 - `test-results/` - Playwright artifacts.
 
@@ -191,6 +193,11 @@ npm run mcp
 npm run setup:llama                  # local discovery only
 npm run setup:llama -- -- --check    # release metadata only; no archive download
 ```
+
+For a first run, **Settings → Conversation generation → Set up local generation**
+installs a `llama.cpp` build and a fitting model from one confirmed plan; the
+commands above remain the scripted and custom-build path. See
+[Experimental Generation](GENERATION_ALPHA.md).
 
 If Playwright browsers are not installed:
 

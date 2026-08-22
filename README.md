@@ -2,7 +2,7 @@
 
 **Local-first archive, semantic search, and continuation for your AI conversations.**
 
-[![CI](https://github.com/ChrystianSchutz/viewerHistoriLLM/actions/workflows/ci.yml/badge.svg)](https://github.com/ChrystianSchutz/viewerHistoriLLM/actions/workflows/ci.yml)
+[![CI](https://github.com/ChrystianSchutz/ThreadShelf/actions/workflows/ci.yml/badge.svg)](https://github.com/ChrystianSchutz/ThreadShelf/actions/workflows/ci.yml)
 [![Node.js 20.19+](https://img.shields.io/badge/Node.js-20.19%2B-339933?logo=nodedotjs&logoColor=white)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Local-first](https://img.shields.io/badge/data_path-local--first-0f766e)](#privacy-boundary)
@@ -390,7 +390,51 @@ settings, supports favorites, and exposes detailed runtime logs only on demand.
 Active streams hold a model lease so concurrent eject or configuration changes
 cannot unload a model mid-response.
 
+### Guided setup: runtime and model in one confirmation
+
+**Settings → Conversation generation → Set up local generation** resolves one
+plan for the whole first run: the official `llama.cpp` build for this machine,
+plus a GGUF model sized for the detected accelerator. The plan is shown before
+anything is fetched — every URL, SHA-256 digest, size, and destination — and one
+confirmation runs it. Nothing downloads until you confirm, and Cancel stops an
+in-flight transfer immediately.
+
+The plan is re-resolved on the server when you confirm; a client can never hand
+the server a URL to fetch and execute. If the resolved plan no longer matches the
+one you approved — a nightly build moved, the catalog changed, free VRAM shifted
+the recommendation — the run stops and shows the new plan for a fresh
+confirmation instead of downloading something you never agreed to.
+
+### Browse and download models from Hugging Face
+
+**Settings → Conversation generation → Download a model…** — or the same action
+in the chat's model menu — opens a read-only browser over the public Hugging
+Face API. It needs no account or token: search
+or sort by downloads, likes, trending, or recency, inspect a repository's
+quantizations, and see a per-quantization verdict for your hardware — **fits**
+inside the accelerator budget, **tight** (partly on CPU), or **too large**.
+Builds from known publishers (`unsloth`, `lmstudio-community`, `bartowski`,
+`ggml-org`, `Qwen`, `google`, `mistralai`) are marked.
+
+Downloads land in `.threadshelf/models` (override with
+`THREADSHELF_MODELS_PATH`), which is gitignored and always searched for models,
+so a downloaded model appears in the model menu without further configuration
+and is selected automatically when the download finishes.
+Every file is verified against the repository's LFS `oid` (its SHA-256) before
+it is moved into place. A cancelled transfer keeps its `.part` file and the next
+attempt resumes from there; any other failure deletes it.
+
+Gated repositories are detected up front and marked in the UI. To use one, accept
+its licence on Hugging Face and set `HF_TOKEN` in the gitignored root `.env`. A
+configured token is sent with every Hugging Face request; without one, public
+repositories still work. No conversation content is ever sent to Hugging Face —
+only catalog metadata requests and file downloads.
+
 ### Find or install llama.cpp safely
+
+The guided setup above covers the common case. The CLI installer remains the
+scripted, offline, and custom-build path, and stays the only way to install an
+archive ThreadShelf did not resolve itself.
 
 The setup command is cross-platform (Windows x64/ARM64, macOS x64/Apple Silicon,
 Linux x64/ARM64 where official release assets exist). With no arguments it only
@@ -415,6 +459,15 @@ kept beside the installed files:
 ```bash
 npm run setup:llama -- -- --install
 npm run setup:llama -- -- --install --yes
+```
+
+Upstream's `/releases/latest` points at a semver release that carries no
+binaries, so ThreadShelf follows its `nightly-tag.txt` pointer to the real
+`bNNNNN` build. Pin an exact upstream build with `--release`, and set
+`GITHUB_TOKEN` if you hit the anonymous API rate limit:
+
+```bash
+npm run setup:llama -- -- --install --release b10088
 ```
 
 Default builds are portable CPU builds (Metal is automatic on macOS). Accelerated
@@ -592,7 +645,12 @@ Missing Playwright browsers? `npx playwright install chromium`.
 | `LLAMA_CPP_FLASH_ATTENTION`               | `auto`                             | Flash Attention: `auto`, `on`, or `off`.                              |
 | `LLAMA_MODEL_PATHS`                       | _(defaults)_                       | Extra model roots (`;` on Windows, `:` on macOS/Linux).               |
 | `THREADSHELF_TOOLS_PATH`                  | `.threadshelf/tools`               | llama.cpp discovery/installer root.                                   |
+| `THREADSHELF_MODELS_PATH`                 | `.threadshelf/models`              | Catalog download root; always searched for models.                    |
 | `THREADSHELF_DISABLE_DEFAULT_MODEL_PATHS` | `0`                                | Set `1` to scan only explicitly configured roots.                     |
+| `HF_TOKEN`                                | _(empty)_                          | Hugging Face token; required only for gated repositories.             |
+| `HUGGING_FACE_HUB_TOKEN`                  | _(empty)_                          | Alternative name for `HF_TOKEN`.                                      |
+| `GITHUB_TOKEN`                            | _(empty)_                          | Raises the GitHub API rate limit for llama.cpp releases.              |
+| `GH_TOKEN`                                | _(empty)_                          | Alternative name for `GITHUB_TOKEN`.                                  |
 | `OPENROUTER_API_KEY`                      | _(empty)_                          | OpenRouter key; may be set in `.env`, never exposed to the browser.   |
 | `OPENROUTER_BASE_URL`                     | `https://openrouter.ai/api/v1`     | Override primarily intended for testing.                              |
 
@@ -619,7 +677,10 @@ Indexing, embeddings, storage, search, MCP, and llama.cpp inference are local.
 The explicitly selected **Experimental Alpha OpenRouter generation is not
 local**: it sends the selected archive or ThreadShelf chat's user/assistant
 history and prompt to OpenRouter and
-the routed provider. **Do not commit real chat exports, uploaded files, local
+the routed provider. Two other surfaces reach the network but never carry
+conversation content: GitHub Releases for `llama.cpp` builds, and Hugging Face
+for model catalog metadata and GGUF downloads — both only after you ask for
+them. **Do not commit real chat exports, uploaded files, local
 databases, `.threadshelf/`, logs, or temp folders** — `.gitignore` excludes them.
 `npm run check:repo` also rejects these paths if they become commit candidates.
 Fixtures in `test/fixtures/` are synthetic and anonymized. See

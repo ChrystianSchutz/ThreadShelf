@@ -195,8 +195,14 @@ describe('generation configuration', () => {
       process.env.THREADSHELF_DISABLE_DEFAULT_MODEL_PATHS = '1';
       config = await getGenerationConfig();
       assert.deepStrictEqual(config.llamaCpp.defaultModelDirectories, []);
-      assert.deepStrictEqual(effectiveModelDirectories(config.llamaCpp), [resolve(custom)]);
+      // The catalog download directory is always searched, so models fetched from
+      // the browser are discoverable without the user configuring a root.
+      assert.deepStrictEqual(effectiveModelDirectories(config.llamaCpp), [
+        resolve(config.llamaCpp.downloadDirectory),
+        resolve(custom),
+      ]);
     } finally {
+      delete process.env.THREADSHELF_MODELS_PATH;
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -592,6 +598,24 @@ describe('GGUF discovery', () => {
       assert.ok(models.every((model) => model.provider === 'llama-cpp'));
       assert.ok(models.every((model) => Number.isInteger(model.sizeBytes)));
       assert.strictEqual(localGgufModelName(models[1].id), 'model-Q4_K_M');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps roots on a different drive instead of folding them into the first one', async () => {
+    // On Windows `path.relative` between drives returns an absolute path with no
+    // `..` prefix. Treating that as "nested" silently dropped every model root
+    // that did not share a drive with the first one.
+    const root = await mkdtemp(join(tmpdir(), 'threadshelf-crossdrive-'));
+    try {
+      await writeFile(join(root, 'only-Q4_K_M.gguf'), 'model');
+      const otherDrive = process.platform === 'win32' ? 'Z:\models' : '/mnt/other-models';
+      const models = await discoverGgufModels([otherDrive, root]);
+      assert.deepStrictEqual(
+        models.map((model) => model.name),
+        ['only-Q4_K_M'],
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
