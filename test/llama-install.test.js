@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import { createServer } from 'node:http';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,6 +8,7 @@ import {
   customInstallSource,
   assertSafeArchiveEntries,
   inspectLlamaArchive,
+  installLlamaCpp,
   llamaExecutableCandidates,
   findLlamaExecutables,
   selectReleaseAsset,
@@ -219,6 +221,71 @@ describe('llama.cpp installer selection', () => {
       "process.stdout.write('x'.repeat(1024 * 1024))",
     ]);
     assert.strictEqual(output.length, 1024 * 1024);
+  });
+
+  it('keeps a cancelled runtime partial and resumes it with Range', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'threadshelf-runtime-resume-'));
+    const ranges = [];
+    const totalBytes = 32 * 1024 * 1024;
+    const server = createServer((req, res) => {
+      ranges.push(req.headers.range);
+      const start = Number(req.headers.range?.match(/^bytes=(\d+)-$/)?.[1] ?? 0);
+      res.writeHead(start > 0 ? 206 : 200, {
+        'content-length': String(totalBytes - start),
+        ...(start > 0 ? { 'content-range': `bytes ${start}-${totalBytes - 1}/${totalBytes}` } : {}),
+      });
+      let sent = start;
+      const timer = setInterval(() => {
+        if (res.destroyed || sent >= totalBytes) {
+          clearInterval(timer);
+          if (!res.destroyed) res.end();
+          return;
+        }
+        const size = Math.min(256 * 1024, totalBytes - sent);
+        res.write(Buffer.alloc(size));
+        sent += size;
+      }, 5);
+      res.once('close', () => clearInterval(timer));
+    });
+
+    try {
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', resolve);
+      });
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      const source = {
+        url: `http://127.0.0.1:${port}/runtime.zip`,
+        filename: 'runtime.zip',
+        tag: 'resume-test',
+        flavor: 'cpu',
+      };
+
+      const cancelInstall = async () => {
+        const controller = new AbortController();
+        await assert.rejects(
+          installLlamaCpp(source, {
+            installRoot: root,
+            signal: controller.signal,
+            onProgress: (progress) => {
+              if ((progress.downloadedBytes ?? 0) >= 1024 * 1024) {
+                controller.abort(new DOMException('cancelled', 'AbortError'));
+              }
+            },
+          }),
+          (error) => error instanceof Error && error.name === 'AbortError',
+        );
+      };
+
+      await cancelInstall();
+      await cancelInstall();
+      assert.strictEqual(ranges[0], undefined);
+      assert.match(ranges[1] ?? '', /^bytes=[1-9]\d*-$/);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it(

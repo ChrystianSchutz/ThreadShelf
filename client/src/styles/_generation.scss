@@ -1859,8 +1859,20 @@
 
 .model-popover-pick {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
+}
+
+.model-popover-pick-actions {
+  display: flex;
+  gap: 6px;
+
+  .icon-only {
+    display: grid;
+    width: 30px;
+    padding: 0;
+    place-items: center;
+  }
 }
 
 .composer-actions {

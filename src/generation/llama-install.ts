@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { existsSync } from 'fs';
 import {
   access,
@@ -428,6 +429,11 @@ const downloadAndVerify = async (
   onProgress?: (progress: InstallProgress) => void,
   signal?: AbortSignal,
 ): Promise<void> => {
+  if (existsSync(destination)) {
+    const valid = !sha256 || (await sha256File(destination)) === sha256.toLowerCase();
+    if (valid) return;
+    await rm(destination, { force: true });
+  }
   await downloadToFile(url, destination, {
     sha256,
     signal,
@@ -439,6 +445,28 @@ const downloadAndVerify = async (
         totalBytes: progress.totalBytes,
       }),
   });
+};
+
+const cachedArtifactPath = (
+  directory: string,
+  url: string,
+  filename: string,
+  sha256?: string,
+): string => {
+  const identity = createHash('sha256')
+    .update(`${url}\0${sha256 ?? ''}`)
+    .digest('hex')
+    .slice(0, 20);
+  const safeName = basename(filename).replace(/[^A-Za-z0-9._-]/g, '_') || 'artifact';
+  return join(directory, `${identity}-${safeName}`);
+};
+
+const cleanupFailedArtifact = async (archive: string, error: unknown): Promise<void> => {
+  if (error instanceof Error && error.name === 'AbortError') return;
+  await Promise.all([
+    rm(archive, { force: true }).catch(() => undefined),
+    rm(`${archive}.part`, { force: true }).catch(() => undefined),
+  ]);
 };
 
 const run = async (command: string, args: readonly string[]): Promise<void> =>
@@ -553,27 +581,42 @@ const installCompanionArchives = async (
   companions: NonNullable<InstallSource['companions']>,
   targetDirectory: string,
   staging: string,
+  downloadDirectory: string,
   onProgress?: (progress: InstallProgress) => void,
   signal?: AbortSignal,
 ): Promise<void> => {
   for (const [index, companion] of companions.entries()) {
-    const archive = join(staging, `companion-${index}-${basename(companion.filename)}`);
+    const archive = cachedArtifactPath(
+      downloadDirectory,
+      companion.url,
+      companion.filename,
+      companion.sha256,
+    );
     const extracted = join(staging, `companion-${index}-extracted`);
     await mkdir(extracted);
-    onProgress?.({ phase: 'downloading', downloadedBytes: 0 });
-    await downloadAndVerify(companion.url, archive, companion.sha256, onProgress, signal);
-    onProgress?.({ phase: 'inspecting' });
-    await inspectLlamaArchive(archive);
-    onProgress?.({ phase: 'extracting' });
-    await extractArchive(archive, extracted);
-    // Runtime archives contain DLLs shared by the executable. Never replace an
-    // existing file during repair; matching files are left untouched.
-    for (const entry of await readdir(extracted)) {
-      await cp(join(extracted, entry), join(targetDirectory, entry), {
-        recursive: true,
-        force: false,
-        errorOnExist: false,
-      });
+    try {
+      onProgress?.({ phase: 'downloading', downloadedBytes: 0 });
+      await downloadAndVerify(companion.url, archive, companion.sha256, onProgress, signal);
+      signal?.throwIfAborted();
+      onProgress?.({ phase: 'inspecting' });
+      await inspectLlamaArchive(archive);
+      signal?.throwIfAborted();
+      onProgress?.({ phase: 'extracting' });
+      await extractArchive(archive, extracted);
+      signal?.throwIfAborted();
+      // Runtime archives contain DLLs shared by the executable. Never replace an
+      // existing file during repair; matching files are left untouched.
+      for (const entry of await readdir(extracted)) {
+        await cp(join(extracted, entry), join(targetDirectory, entry), {
+          recursive: true,
+          force: false,
+          errorOnExist: false,
+        });
+      }
+      await rm(archive, { force: true });
+    } catch (error) {
+      await cleanupFailedArtifact(archive, error);
+      throw error;
     }
   }
 };
@@ -611,7 +654,10 @@ export const installLlamaCpp = async (
     safeFlavor ? `${safeTag}-${safeFlavor}` : safeTag,
   );
   await mkdir(dirname(destination), { recursive: true });
+  const downloadDirectory = join(dirname(destination), '.downloads');
+  await mkdir(downloadDirectory, { recursive: true });
   const staging = await mkdtemp(join(tmpdir(), 'threadshelf-llama-'));
+  let primaryArchive: string | undefined;
   try {
     if (existsSync(destination)) {
       const metadata = await readFile(join(destination, 'THREADSHELF_INSTALL.json'), 'utf8')
@@ -648,6 +694,7 @@ export const installLlamaCpp = async (
         source.companions,
         dirname(executablePath),
         staging,
+        downloadDirectory,
         onProgress,
         signal,
       );
@@ -658,10 +705,14 @@ export const installLlamaCpp = async (
       );
       return { installDirectory: destination, executablePath, source };
     }
-    const archive = join(
-      staging,
-      source.filename || `llama${extname(new URL(source.url).pathname)}`,
+    const archiveFilename = source.filename || `llama${extname(new URL(source.url).pathname)}`;
+    const archive = cachedArtifactPath(
+      downloadDirectory,
+      source.url,
+      archiveFilename,
+      source.sha256,
     );
+    primaryArchive = archive;
     const extracted = join(staging, 'extracted');
     await mkdir(extracted);
     onProgress?.({ phase: 'downloading', downloadedBytes: 0 });
@@ -685,6 +736,7 @@ export const installLlamaCpp = async (
         source.companions,
         dirname(executable),
         staging,
+        downloadDirectory,
         onProgress,
         signal,
       );
@@ -704,11 +756,16 @@ export const installLlamaCpp = async (
       await cp(extracted, destination, { recursive: true, errorOnExist: true });
     });
     const relativeExecutable = executable.slice(extracted.length + 1);
+    await rm(archive, { force: true });
+    primaryArchive = undefined;
     return {
       installDirectory: destination,
       executablePath: join(destination, relativeExecutable),
       source,
     };
+  } catch (error) {
+    if (primaryArchive) await cleanupFailedArtifact(primaryArchive, error);
+    throw error;
   } finally {
     await rm(staging, { recursive: true, force: true });
   }

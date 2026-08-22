@@ -275,4 +275,56 @@ test.describe('Model catalog browser', () => {
     const buttons = appPage.locator('.catalog-quant button');
     await expect(buttons.first()).toBeDisabled();
   });
+
+  test('opens the catalog from chat and selects the model after downloading it', async ({
+    appPage,
+    serverContext,
+  }) => {
+    const downloadedPath = 'C:\\isolated\\models\\Qwen3.5-4B-Q4_K_M.gguf';
+    let downloaded = false;
+    await mockCatalog(appPage);
+    await appPage.route('**/api/generation/models?provider=llama-cpp*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          provider: 'llama-cpp',
+          models: downloaded
+            ? [
+                {
+                  id: downloadedPath,
+                  path: downloadedPath,
+                  name: 'Qwen3.5-4B-Q4_K_M',
+                  provider: 'llama-cpp',
+                  sizeBytes: 2_500_000_000,
+                  loaded: false,
+                },
+              ]
+            : [],
+          runtime: { state: 'stopped', detail: 'No model loaded.' },
+        }),
+      });
+    });
+    await appPage.route('**/api/generation/catalog/download', async (route) => {
+      downloaded = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/x-ndjson',
+        body: `${JSON.stringify({ type: 'done', primaryPath: downloadedPath, directory: 'C:\\isolated\\models' })}\n`,
+      });
+    });
+
+    await appPage.goto(`${serverContext.baseUrl}/chat`);
+    await appPage.locator('#sidebarNewChatButton').click();
+    await appPage.locator('#modelMenuButton').click();
+    await appPage.getByRole('button', { name: 'Browse and download GGUF models' }).click();
+
+    const dialog = appPage.getByRole('dialog', { name: 'Download a model' });
+    await expect(dialog).toBeVisible();
+    await dialog.locator('.catalog-item-head').first().click();
+    await dialog.locator('.catalog-quant button').first().click();
+
+    await expect(dialog).toBeHidden();
+    await expect(appPage.getByLabel('Generation model')).toHaveValue('Qwen3.5-4B-Q4_K_M');
+  });
 });

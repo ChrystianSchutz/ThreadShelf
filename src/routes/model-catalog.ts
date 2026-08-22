@@ -13,6 +13,7 @@ import { downloadModel, planModelDownload } from '../generation/model-download.j
 import {
   buildQuickSetupPlan,
   quickSetupFingerprint,
+  quickSetupFingerprintMatches,
   runQuickSetupPlan,
   type QuickSetupPlan,
 } from '../generation/quick-setup.js';
@@ -161,11 +162,14 @@ router.post('/api/generation/setup/run', requireLoopback, async (req, res) => {
     // nightly build moved, the catalog returned different files, or free VRAM
     // changed the recommendation, the user is shown the new plan to approve
     // rather than handed a download they never agreed to.
-    const approved = typeof req.body?.fingerprint === 'string' ? req.body.fingerprint : '';
+    const approved = req.body?.fingerprint;
     const current = quickSetupFingerprint(plan);
-    if (approved && approved !== current) {
+    if (!quickSetupFingerprintMatches(plan, approved)) {
       res.status(409).json({
-        error: 'The setup plan changed since it was shown. Review the new plan and confirm again.',
+        error:
+          typeof approved === 'string' && approved
+            ? 'The setup plan changed since it was shown. Review the new plan and confirm again.'
+            : 'Setup requires approval of the exact plan shown. Review the plan and confirm again.',
         plan,
         fingerprint: current,
       });

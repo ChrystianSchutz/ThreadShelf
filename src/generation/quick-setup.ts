@@ -116,6 +116,14 @@ export const quickSetupFingerprint = (plan: QuickSetupPlan): string => {
   return createHash('sha256').update(JSON.stringify(material)).digest('hex').slice(0, 32);
 };
 
+export const quickSetupFingerprintMatches = (
+  plan: QuickSetupPlan,
+  approved: unknown,
+): approved is string =>
+  typeof approved === 'string' &&
+  /^[a-f0-9]{32}$/.test(approved) &&
+  approved === quickSetupFingerprint(plan);
+
 const percentOf = (done: number, total?: number): number | undefined =>
   total && total > 0 ? Math.min(100, Math.round((done / total) * 100)) : undefined;
 

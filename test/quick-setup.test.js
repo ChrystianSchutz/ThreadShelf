@@ -5,7 +5,11 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { abortOnDisconnect } from '../src/routes/stream-abort.js';
-import { buildQuickSetupPlan, quickSetupFingerprint } from '../src/generation/quick-setup.js';
+import {
+  buildQuickSetupPlan,
+  quickSetupFingerprint,
+  quickSetupFingerprintMatches,
+} from '../src/generation/quick-setup.js';
 import { modelFilesPresent, planModelDownload } from '../src/generation/model-download.js';
 import { clearCatalogCacheForTests } from '../src/generation/model-catalog.js';
 
@@ -159,6 +163,14 @@ describe('quick setup plan integrity', () => {
     await buildQuickSetupPlan({ variant: 'cpu', releaseTag: 'b9999', fetchImpl });
     assert.ok(requested.some((url) => url.includes('/releases/tags/b9999')));
     assert.ok(!requested.some((url) => url.endsWith('/releases/latest')));
+  });
+
+  it('requires the exact fingerprint rather than treating a missing value as approval', async () => {
+    const plan = await buildQuickSetupPlan({ variant: 'cpu', fetchImpl: catalogFetch() });
+    assert.strictEqual(quickSetupFingerprintMatches(plan, plan.fingerprint), true);
+    assert.strictEqual(quickSetupFingerprintMatches(plan, undefined), false);
+    assert.strictEqual(quickSetupFingerprintMatches(plan, ''), false);
+    assert.strictEqual(quickSetupFingerprintMatches(plan, '0'.repeat(32)), false);
   });
 });
 
