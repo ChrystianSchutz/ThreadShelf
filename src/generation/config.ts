@@ -12,6 +12,8 @@ export interface LlamaCppConfig {
   readonly modelDirectories: readonly string[];
   /** Environment and conventional paths added at runtime, but never persisted. */
   readonly defaultModelDirectories: readonly string[];
+  /** Where catalog downloads land. Always searched for models. */
+  readonly downloadDirectory: string;
   readonly contextSize: number;
   readonly acceleration: LlamaAccelerationMode;
   readonly gpuLayers: number;
@@ -46,6 +48,7 @@ interface StoredGenerationConfig {
     readonly executablePath?: string;
     readonly baseUrl?: string;
     readonly modelDirectories?: readonly string[];
+    readonly downloadDirectory?: string;
     readonly contextSize?: number;
     readonly acceleration?: LlamaAccelerationMode;
     readonly gpuLayers?: number;
@@ -67,6 +70,7 @@ export interface GenerationConfigUpdate {
     readonly executablePath?: unknown;
     readonly baseUrl?: unknown;
     readonly modelDirectories?: unknown;
+    readonly downloadDirectory?: unknown;
     readonly contextSize?: unknown;
     readonly acceleration?: unknown;
     readonly gpuLayers?: unknown;
@@ -116,6 +120,9 @@ export const defaultModelDirectories = (
         ];
   return normalizePaths([...configured, ...defaults]);
 };
+
+export const defaultDownloadDirectory = (env: NodeJS.ProcessEnv = process.env): string =>
+  resolve(env.THREADSHELF_MODELS_PATH || join(process.cwd(), '.threadshelf', 'models'));
 
 const readStoredConfig = async (): Promise<StoredGenerationConfig> => {
   try {
@@ -276,7 +283,11 @@ const parseEnvironmentOverride = <T>(
 };
 
 export const effectiveModelDirectories = (config: LlamaCppConfig): string[] =>
-  normalizePaths([...config.modelDirectories, ...config.defaultModelDirectories]);
+  normalizePaths([
+    config.downloadDirectory,
+    ...config.modelDirectories,
+    ...config.defaultModelDirectories,
+  ]);
 
 export const llamaCppConfigChanged = (
   previous: PublicGenerationConfig,
@@ -298,6 +309,13 @@ export const getGenerationConfig = async (): Promise<PublicGenerationConfig> => 
         ) ?? parseLocalBaseUrl(stored.llamaCpp?.baseUrl, 'baseUrl'),
       modelDirectories: normalizePaths(stored.llamaCpp?.modelDirectories ?? []),
       defaultModelDirectories: defaultModelDirectories(),
+      downloadDirectory:
+        parseEnvironmentOverride('THREADSHELF_MODELS_PATH', (value) =>
+          parsePath(value, 'THREADSHELF_MODELS_PATH'),
+        ) ??
+        (stored.llamaCpp?.downloadDirectory
+          ? resolve(stored.llamaCpp.downloadDirectory)
+          : defaultDownloadDirectory()),
       contextSize:
         parseEnvironmentOverride('LLAMA_CPP_CONTEXT_SIZE', (value) =>
           parseContextSize(Number(value)),
@@ -417,6 +435,10 @@ export const updateGenerationConfig = async (
           : current.llamaCpp?.baseUrl,
       modelDirectories:
         parseDirectories(llamaUpdate?.modelDirectories) ?? current.llamaCpp?.modelDirectories ?? [],
+      downloadDirectory:
+        (llamaUpdate?.downloadDirectory !== undefined
+          ? parsePath(llamaUpdate.downloadDirectory, 'downloadDirectory')
+          : current.llamaCpp?.downloadDirectory) ?? undefined,
       contextSize:
         parseContextSize(llamaUpdate?.contextSize) ?? current.llamaCpp?.contextSize ?? 8192,
       acceleration:

@@ -150,6 +150,7 @@ describe('llama.cpp installer selection', () => {
       sha256: undefined,
       tag: undefined,
       destination: undefined,
+      release: undefined,
       variant: 'cpu',
     });
     assert.strictEqual(parseArguments(['--install']).install, true);
@@ -158,6 +159,7 @@ describe('llama.cpp installer selection', () => {
       true,
     );
     assert.throws(() => parseArguments(['--url']), /Missing value/);
+    assert.strictEqual(parseArguments(['--release', 'b10577']).release, 'b10577');
     assert.throws(() => parseArguments(['--variant', '--yes']), /Missing value/);
   });
 

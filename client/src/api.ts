@@ -15,6 +15,13 @@ import type {
   GenerationStreamEvent,
   MasterPromptCollection,
   DirectoryBrowserResponse,
+  CatalogDownloadEvent,
+  CatalogModelResponse,
+  CatalogSearchResponse,
+  CatalogSort,
+  HardwareProfile,
+  QuickSetupEvent,
+  QuickSetupPlan,
   OpenRouterModelSort,
   ThreadShelfChat,
   ThreadShelfChatSummary,
@@ -343,6 +350,70 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model }),
+    });
+  },
+
+  generationHardware(signal?: AbortSignal) {
+    return request<HardwareProfile>('/api/generation/hardware', { signal });
+  },
+
+  catalogSearch(
+    options: { q?: string; sort?: CatalogSort; limit?: number } = {},
+    signal?: AbortSignal,
+  ) {
+    return request<CatalogSearchResponse>(
+      buildUrl('/api/generation/catalog/search', {
+        q: options.q || undefined,
+        sort: options.sort && options.sort !== 'downloads' ? options.sort : undefined,
+        limit: options.limit ? String(options.limit) : undefined,
+      }),
+      { signal },
+    );
+  },
+
+  catalogModel(id: string, signal?: AbortSignal) {
+    return request<CatalogModelResponse>(buildUrl('/api/generation/catalog/model', { id }), {
+      signal,
+    });
+  },
+
+  async catalogDownload(
+    input: { repoId: string; quant?: string; includeProjector?: boolean },
+    onEvent: (event: CatalogDownloadEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const response = await fetch('/api/generation/catalog/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      signal,
+    });
+    await readNdjsonStream<CatalogDownloadEvent>(response, (event) => {
+      onEvent(event);
+      if (event.type === 'error') throw new Error(event.error);
+    });
+  },
+
+  quickSetupPlan(variant?: string, signal?: AbortSignal) {
+    return request<QuickSetupPlan>(buildUrl('/api/generation/setup/plan', { variant }), { signal });
+  },
+
+  async runQuickSetup(
+    input: { variant?: string; model?: string; quant?: string },
+    onEvent: (event: QuickSetupEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const response = await fetch('/api/generation/setup/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // The server refuses to download anything without this flag; it is the
+      // recorded consent for the whole plan shown on screen.
+      body: JSON.stringify({ ...input, confirm: true }),
+      signal,
+    });
+    await readNdjsonStream<QuickSetupEvent>(response, (event) => {
+      onEvent(event);
+      if (event.type === 'error') throw new Error(event.error);
     });
   },
 

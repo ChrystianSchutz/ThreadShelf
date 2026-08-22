@@ -10,7 +10,9 @@ import type {
 import { toast } from '../toast';
 import { DirectoryPicker } from './DirectoryPicker';
 import { GenerationRuntimeBadge } from './GenerationRuntimeBadge';
+import { ModelCatalogModal } from './ModelCatalogModal';
 import { NumberCombobox } from './NumberCombobox';
+import { QuickSetupPanel } from './QuickSetupPanel';
 
 const joinDirectories = (directories: readonly string[]): string => directories.join('\n');
 
@@ -53,6 +55,7 @@ export function GenerationSettings() {
   const [denyDataCollection, setDenyDataCollection] = useState(false);
   const [persistErrorLogs, setPersistErrorLogs] = useState(true);
   const [models, setModels] = useState<GenerationModel[] | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   const applyData = (next: GenerationConfigResponse) => {
     setData(next);
@@ -168,6 +171,8 @@ export function GenerationSettings() {
       {error && <div className="banner err">{error}</div>}
 
       <GenerationRuntimeBadge detailed />
+
+      <QuickSetupPanel onCompleted={() => void scanModels()} />
 
       <div className="panel generation-panel">
         <div className="panel-head">
@@ -321,6 +326,9 @@ export function GenerationSettings() {
             <code>sycl</code>; Metal is automatic on supported Macs.
           </div>
           <div className="generation-actions">
+            <button className="btn primary" onClick={() => setCatalogOpen(true)}>
+              Download a model…
+            </button>
             <button className="btn" onClick={() => void scanModels()}>
               Scan GGUF models
             </button>
@@ -401,6 +409,11 @@ export function GenerationSettings() {
           </span>
         ))}
       </div>
+      <ModelCatalogModal
+        open={catalogOpen}
+        onClose={() => setCatalogOpen(false)}
+        onDownloaded={() => void scanModels()}
+      />
     </section>
   );
 }

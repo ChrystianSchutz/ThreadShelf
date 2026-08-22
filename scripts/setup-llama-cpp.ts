@@ -5,9 +5,9 @@ import { pathToFileURL } from 'url';
 import {
   customInstallSource,
   defaultLlamaInstallRoot,
-  fetchLatestLlamaRelease,
   findLlamaExecutables,
   installLlamaCpp,
+  resolveLlamaRelease,
   selectReleaseAsset,
   sourceFromRelease,
   type LlamaVariant,
@@ -21,6 +21,7 @@ interface Arguments {
   readonly sha256?: string;
   readonly tag?: string;
   readonly destination?: string;
+  readonly release?: string;
   readonly variant: LlamaVariant;
 }
 
@@ -45,6 +46,7 @@ export const parseArguments = (args: readonly string[]): Arguments => {
     sha256: valueAfter(args, '--sha256'),
     tag: valueAfter(args, '--tag'),
     destination: valueAfter(args, '--destination'),
+    release: valueAfter(args, '--release'),
     variant,
   };
 };
@@ -63,6 +65,7 @@ It never downloads or installs unless you explicitly pass --install or --url.
 
 Options:
   --variant cpu|vulkan|cuda|rocm|sycl          default: cpu (Metal is automatic on macOS)
+  --release bNNNNN                            pin an exact upstream build
   --destination PATH                          default: ${defaultLlamaInstallRoot()}
   --yes                                       skip the confirmation prompt
 
@@ -100,7 +103,7 @@ export const main = async (argv: readonly string[] = process.argv.slice(2)): Pro
     return;
   }
 
-  const release = args.url ? null : await fetchLatestLlamaRelease();
+  const release = args.url ? null : await resolveLlamaRelease({ tag: args.release });
   if (args.check && !args.install && !args.url) {
     const asset = selectReleaseAsset(release!, { variant: args.variant });
     console.log(`Latest compatible official release: ${release!.tag_name}`);

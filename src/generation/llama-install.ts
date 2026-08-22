@@ -1,5 +1,4 @@
-import { createHash } from 'crypto';
-import { createReadStream, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import {
   access,
   chmod,
@@ -15,10 +14,24 @@ import {
 import { homedir, tmpdir } from 'os';
 import { basename, dirname, extname, join, resolve } from 'path';
 import { spawn } from 'child_process';
+import { downloadToFile, sha256File, type DownloadProgress } from './downloader.js';
+
+export { sha256File };
 
 export const LLAMA_CPP_REPOSITORY = 'ggml-org/llama.cpp';
 export const LLAMA_CPP_RELEASE_API =
   'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest';
+export const LLAMA_CPP_RELEASES_API = 'https://api.github.com/repos/ggml-org/llama.cpp/releases';
+
+/**
+ * Upstream publishes stable semver releases (`v0.2.0`) that carry no binaries and
+ * mark the nightly build in a `nightly-tag.txt` asset, while the actual archives
+ * live in `bNNNNN` releases flagged as pre-releases. GitHub's `/releases/latest`
+ * therefore points at a release with nothing to install.
+ */
+export const NIGHTLY_TAG_ASSET = 'nightly-tag.txt';
+const NIGHTLY_TAG_PATTERN = /^b\d+$/;
+const RELEASE_SCAN_PAGE_SIZE = 30;
 
 export type LlamaPlatform = 'win32' | 'darwin' | 'linux';
 export type LlamaArch = 'x64' | 'arm64';
@@ -42,6 +55,7 @@ export interface InstallSource {
   readonly url: string;
   readonly filename: string;
   readonly sha256?: string;
+  readonly sizeBytes?: number;
   readonly tag: string;
   readonly releaseUrl?: string;
   readonly flavor?: LlamaVariant;
@@ -49,6 +63,7 @@ export interface InstallSource {
     readonly url: string;
     readonly filename: string;
     readonly sha256: string;
+    readonly sizeBytes?: number;
   }[];
 }
 
@@ -159,23 +174,129 @@ export const findLlamaExecutables = async (
   return unique([...direct.filter((path): path is string => path !== null), ...nested]);
 };
 
-export const fetchLatestLlamaRelease = async (
-  fetchImpl: typeof fetch = fetch,
-): Promise<LlamaRelease> => {
-  const response = await fetchImpl(LLAMA_CPP_RELEASE_API, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'ThreadShelf-llama-installer',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
+const githubHeaders = (env: NodeJS.ProcessEnv = process.env): Record<string, string> => {
+  const token = (env.GITHUB_TOKEN || env.GH_TOKEN || '').trim();
+  return {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'ThreadShelf-llama-installer',
+    'X-GitHub-Api-Version': '2022-11-28',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
+
+const githubGet = async (url: string, fetchImpl: typeof fetch): Promise<Response> => {
+  const response = await fetchImpl(url, {
+    headers: githubHeaders(),
     signal: AbortSignal.timeout(15_000),
   });
+  if (response.status === 403 || response.status === 429) {
+    const remaining = response.headers.get('x-ratelimit-remaining');
+    throw new Error(
+      remaining === '0'
+        ? 'GitHub API rate limit reached. Set GITHUB_TOKEN to raise the limit, or retry later.'
+        : `GitHub release lookup was refused (${response.status})`,
+    );
+  }
   if (!response.ok) throw new Error(`GitHub release lookup failed (${response.status})`);
-  const release = (await response.json()) as Partial<LlamaRelease>;
-  if (!release.tag_name || !release.html_url || !Array.isArray(release.assets)) {
+  return response;
+};
+
+const asRelease = (value: unknown): LlamaRelease => {
+  const release = value as Partial<LlamaRelease>;
+  if (!release?.tag_name || !release.html_url || !Array.isArray(release.assets)) {
     throw new Error('GitHub returned an invalid llama.cpp release payload');
   }
   return release as LlamaRelease;
+};
+
+export const fetchLatestLlamaRelease = async (
+  fetchImpl: typeof fetch = fetch,
+): Promise<LlamaRelease> => asRelease(await (await githubGet(LLAMA_CPP_RELEASE_API, fetchImpl)).json());
+
+export const fetchLlamaReleaseByTag = async (
+  tag: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<LlamaRelease> => {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(tag)) {
+    throw new Error(`Invalid llama.cpp release tag: ${tag}`);
+  }
+  return asRelease(
+    await (
+      await githubGet(`${LLAMA_CPP_RELEASES_API}/tags/${encodeURIComponent(tag)}`, fetchImpl)
+    ).json(),
+  );
+};
+
+/** True when a release actually carries installable `llama-*-bin-*` archives. */
+export const releaseHasLlamaBinaries = (release: LlamaRelease): boolean =>
+  release.assets.some((asset) => /^llama-.*-bin-.*\.(zip|tar\.gz|tgz)$/i.test(asset.name));
+
+/** Reads the `bNNNNN` build that a binary-less stable release points at. */
+export const readNightlyTagPointer = async (
+  release: LlamaRelease,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> => {
+  const pointer = release.assets.find(
+    (asset) => asset.name.toLowerCase() === NIGHTLY_TAG_ASSET,
+  );
+  if (!pointer) return null;
+  const response = await fetchImpl(pointer.browser_download_url, {
+    redirect: 'follow',
+    headers: { 'User-Agent': 'ThreadShelf-llama-installer' },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) return null;
+  const tag = (await response.text()).trim().split(/\s+/)[0] ?? '';
+  return NIGHTLY_TAG_PATTERN.test(tag) ? tag : null;
+};
+
+const scanRecentReleasesForBinaries = async (
+  fetchImpl: typeof fetch,
+): Promise<LlamaRelease | null> => {
+  const payload = (await (
+    await githubGet(`${LLAMA_CPP_RELEASES_API}?per_page=${RELEASE_SCAN_PAGE_SIZE}`, fetchImpl)
+  ).json()) as unknown;
+  if (!Array.isArray(payload)) return null;
+  for (const entry of payload) {
+    const release = entry as Partial<LlamaRelease>;
+    if (!release?.tag_name || !Array.isArray(release.assets)) continue;
+    if (!NIGHTLY_TAG_PATTERN.test(release.tag_name)) continue;
+    if (releaseHasLlamaBinaries(release as LlamaRelease)) return release as LlamaRelease;
+  }
+  return null;
+};
+
+/**
+ * Resolves the newest release that really has binaries, following the
+ * `nightly-tag.txt` pointer and falling back to a scan of recent releases.
+ */
+export const resolveLlamaRelease = async ({
+  tag,
+  fetchImpl = fetch,
+}: { tag?: string; fetchImpl?: typeof fetch } = {}): Promise<LlamaRelease> => {
+  if (tag) {
+    const pinned = await fetchLlamaReleaseByTag(tag, fetchImpl);
+    if (!releaseHasLlamaBinaries(pinned)) {
+      throw new Error(`Release ${pinned.tag_name} carries no llama.cpp binaries.`);
+    }
+    return pinned;
+  }
+
+  const latest = await fetchLatestLlamaRelease(fetchImpl);
+  if (releaseHasLlamaBinaries(latest)) return latest;
+
+  const nightlyTag = await readNightlyTagPointer(latest, fetchImpl);
+  if (nightlyTag) {
+    const nightly = await fetchLlamaReleaseByTag(nightlyTag, fetchImpl).catch(() => null);
+    if (nightly && releaseHasLlamaBinaries(nightly)) return nightly;
+  }
+
+  const scanned = await scanRecentReleasesForBinaries(fetchImpl);
+  if (scanned) return scanned;
+
+  throw new Error(
+    `No llama.cpp release with binaries was found (latest tag ${latest.tag_name} has none). Use --url for a custom build.`,
+  );
 };
 
 const architectureToken = (arch: NodeJS.Architecture): LlamaArch => {
@@ -186,6 +307,13 @@ const architectureToken = (arch: NodeJS.Architecture): LlamaArch => {
 const platformToken = (platform: NodeJS.Platform): LlamaPlatform => {
   if (platform === 'win32' || platform === 'darwin' || platform === 'linux') return platform;
   throw new Error(`Unsupported platform: ${platform}. Use --url for a compatible custom build.`);
+};
+
+/** Orders `-cuda-13.3-` ahead of `-cuda-12.4-`; unversioned assets rank lowest. */
+export const toolkitRank = (name: string): number => {
+  const match = name.toLowerCase().match(/-(?:cuda|rocm|sycl|openvino)-(\d+)(?:\.(\d+))?/);
+  if (!match) return -1;
+  return Number(match[1]) * 1000 + Number(match[2] ?? 0);
 };
 
 export const selectReleaseAsset = (
@@ -220,13 +348,17 @@ export const selectReleaseAsset = (
     if (
       os === 'linux' &&
       supportedVariant === 'cpu' &&
-      /-(vulkan|rocm|sycl|openvino)-/.test(name)
+      /-(vulkan|rocm|sycl|openvino|cuda)-/.test(name)
     ) {
       return false;
     }
     return required.every((token) => name.includes(token));
   });
-  const asset = matches.sort((a, b) => a.name.localeCompare(b.name))[0];
+  // Accelerator builds are published per toolkit version (cuda-12.4, cuda-13.3,
+  // rocm-7.14). Plain alphabetical order would pin the oldest toolkit forever.
+  const asset = matches.sort(
+    (a, b) => toolkitRank(b.name) - toolkitRank(a.name) || a.name.localeCompare(b.name),
+  )[0];
   if (!asset) {
     throw new Error(
       `No official ${os}/${cpu}/${supportedVariant} binary exists in release ${release.tag_name}. Use --url for a custom build.`,
@@ -269,6 +401,7 @@ export const sourceFromRelease = (
         url: companion.browser_download_url,
         filename: companion.name,
         sha256: companionSha256,
+        sizeBytes: companion.size,
       },
     ];
   }
@@ -276,6 +409,7 @@ export const sourceFromRelease = (
     url: asset.browser_download_url,
     filename: asset.name,
     sha256,
+    sizeBytes: asset.size,
     tag: release.tag_name,
     releaseUrl: release.html_url,
     flavor: options.variant ?? 'cpu',
@@ -283,49 +417,28 @@ export const sourceFromRelease = (
   };
 };
 
-export const sha256File = async (path: string): Promise<string> =>
-  new Promise((resolveHash, reject) => {
-    const hash = createHash('sha256');
-    const stream = createReadStream(path);
-    stream.on('error', reject);
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('end', () => resolveHash(hash.digest('hex')));
-  });
-
-const downloadFile = async (
+/**
+ * Downloads and verifies in one pass. The digest is computed while the bytes are
+ * written, so a several-hundred-megabyte archive is never read back off disk.
+ */
+const downloadAndVerify = async (
   url: string,
   destination: string,
+  sha256: string | undefined,
   onProgress?: (progress: InstallProgress) => void,
+  signal?: AbortSignal,
 ): Promise<void> => {
-  const parsed = new URL(url);
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new Error('Download URL must use HTTPS or HTTP');
-  }
-  const response = await fetch(parsed, {
-    redirect: 'follow',
+  await downloadToFile(url, destination, {
+    sha256,
+    signal,
     headers: { 'User-Agent': 'ThreadShelf-llama-installer' },
+    onProgress: (progress: DownloadProgress) =>
+      onProgress?.({
+        phase: 'downloading',
+        downloadedBytes: progress.downloadedBytes,
+        totalBytes: progress.totalBytes,
+      }),
   });
-  if (!response.ok || !response.body) {
-    throw new Error(`Download failed (${response.status})`);
-  }
-  const { Readable } = await import('stream');
-  const { Transform } = await import('stream');
-  const { pipeline } = await import('stream/promises');
-  const { createWriteStream } = await import('fs');
-  const totalBytes = Number(response.headers.get('content-length')) || undefined;
-  let downloadedBytes = 0;
-  const progress = new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      downloadedBytes += chunk.length;
-      onProgress?.({ phase: 'downloading', downloadedBytes, totalBytes });
-      callback(null, chunk);
-    },
-  });
-  await pipeline(
-    Readable.fromWeb(response.body as never),
-    progress,
-    createWriteStream(destination, { mode: 0o600 }),
-  );
 };
 
 const run = async (command: string, args: readonly string[]): Promise<void> =>
@@ -447,14 +560,7 @@ const installCompanionArchives = async (
     const extracted = join(staging, `companion-${index}-extracted`);
     await mkdir(extracted);
     onProgress?.({ phase: 'downloading', downloadedBytes: 0 });
-    await downloadFile(companion.url, archive, onProgress);
-    onProgress?.({ phase: 'verifying' });
-    const actual = await sha256File(archive);
-    if (actual !== companion.sha256.toLowerCase()) {
-      throw new Error(
-        `SHA-256 mismatch for ${companion.filename}: expected ${companion.sha256}, got ${actual}`,
-      );
-    }
+    await downloadAndVerify(companion.url, archive, companion.sha256, onProgress);
     onProgress?.({ phase: 'inspecting' });
     await inspectLlamaArchive(archive);
     onProgress?.({ phase: 'extracting' });
@@ -502,9 +608,6 @@ export const installLlamaCpp = async (
   const staging = await mkdtemp(join(tmpdir(), 'threadshelf-llama-'));
   try {
     if (existsSync(destination)) {
-      if (!source.companions?.length) {
-        throw new Error(`Install destination already exists: ${destination}`);
-      }
       const metadata = await readFile(join(destination, 'THREADSHELF_INSTALL.json'), 'utf8')
         .then(
           (value) =>
@@ -530,6 +633,11 @@ export const installLlamaCpp = async (
       if (!executablePath) {
         throw new Error(`Existing install has no llama-server: ${destination}`);
       }
+      // Re-running an install of the same build is a no-op rather than an error,
+      // so the one-click setup screen stays safe to press twice.
+      if (!source.companions?.length) {
+        return { installDirectory: destination, executablePath, source };
+      }
       await installCompanionArchives(
         source.companions,
         dirname(executablePath),
@@ -550,16 +658,7 @@ export const installLlamaCpp = async (
     const extracted = join(staging, 'extracted');
     await mkdir(extracted);
     onProgress?.({ phase: 'downloading', downloadedBytes: 0 });
-    await downloadFile(source.url, archive, onProgress);
-    if (source.sha256) {
-      onProgress?.({ phase: 'verifying' });
-      const actual = await sha256File(archive);
-      if (actual !== source.sha256.toLowerCase()) {
-        throw new Error(
-          `SHA-256 mismatch for ${source.filename}: expected ${source.sha256}, got ${actual}`,
-        );
-      }
-    }
+    await downloadAndVerify(source.url, archive, source.sha256, onProgress);
     onProgress?.({ phase: 'inspecting' });
     await inspectLlamaArchive(archive);
     onProgress?.({ phase: 'extracting' });

@@ -15,9 +15,13 @@ if (listed.status !== 0) {
 const files = [...new Set(listed.stdout.split('\0').filter(Boolean))].sort();
 const violations: string[] = [];
 
+// Runtime data roots are matched by prefix, not exact name. The data root moves
+// with THREADSHELF_PATH, so an exact `\.threadshelf` once let a 130 MB
+// `.threadshelf-demo/` LanceDB tree reach the index unnoticed.
 const forbiddenDirectories =
-  /(^|\/)(DO_NOT_COMMIT|private|exports|\.lancedb(?:-test)?|\.uploads|\.threadshelf|\.tmp-[^/]+|test-results|playwright-report)(\/|$)/i;
-const forbiddenExtensions = /\.(?:zip|7z|tar|gz|gguf|db|sqlite3?|pem|key|p12|log)$/i;
+  /(^|\/)(DO_NOT_COMMIT|private|exports|\.lancedb[^/]*|\.uploads[^/]*|\.threadshelf[^/]*|\.tmp-[^/]+|\.playwright-mcp|test-results|playwright-report)(\/|$)/i;
+const forbiddenExtensions =
+  /\.(?:zip|7z|tar|gz|gguf|onnx|lance|txn|manifest|db|sqlite3?|pem|key|p12|log)$/i;
 const allowedJson = [
   /^(?:package|package-lock|tsconfig|vite\.config)\.json$/i,
   /^client\/(?:package|tsconfig)\.json$/i,

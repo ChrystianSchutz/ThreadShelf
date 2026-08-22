@@ -56,12 +56,19 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
   routes/           HTTP routes (health, search, thread, collections, files, ingest, insights)
   services/         search, thread, collections, insights business logic
   generation/       Experimental Alpha provider plugins, config, model discovery, llama wrapper
+    downloader.ts          Shared resumable, hash-verifying downloader (runtime + models)
+    model-catalog.ts       Read-only Hugging Face GGUF browser (public API, no token)
+    model-download.ts      Plans and fetches catalog models into the download directory
+    hardware.ts            Accelerator/RAM detection and the model "will it fit" verdict
+    quick-setup.ts         One-screen setup plan (runtime + model) and its runner
     master-prompts.ts      User system prompts on disk (.threadshelf/master-prompts.json)
     error-log.ts           Optional rotating generation errors (.threadshelf/generation-errors.log)
     filesystem-browser.ts  Loopback-only, directory-only model-root browser
 client/             React + Vite + TypeScript web UI (npm workspace)
   src/              Components, pages, store (zustand), queries (react-query)
     components/ModelCombobox.tsx  Searchable generation models + local favorites
+    components/ModelCatalogModal.tsx  Hugging Face model browser (search, gating, VRAM fit)
+    components/QuickSetupPanel.tsx    One-confirmation llama.cpp + model install
     components/NumberCombobox.tsx Typeable token-budget dropdown (presets + free entry)
     components/MasterPromptMenu.tsx  Master-prompt editor (server-stored, sent with every request)
     components/NotFound.tsx       Router `defaultNotFoundComponent` for unknown URLs
@@ -221,6 +228,25 @@ locale or time zone only when that behavior is what the test is meant to verify.
    in `client/src/styles/_tokens.scss`, and IndexingView support copy.
 6. Document it in `README.md` and `docs/ARCHITECTURE.md` (incl. a "tested on version X, format not
    guaranteed" note for undocumented formats — AI Studio, OpenRouter, LM Studio).
+
+## External network surfaces
+
+Three, all opt-in and none of them carrying chat content:
+
+1. **OpenRouter** — the only surface that sends conversation text off-device.
+2. **GitHub Releases** (`ggml-org/llama.cpp`) — release metadata; archives only
+   after explicit `--install`/`--url` consent or the setup screen's confirmation.
+   Upstream's `/releases/latest` points at a semver release with no binaries, so
+   `resolveLlamaRelease` follows the `nightly-tag.txt` pointer to the real
+   `bNNNNN` build. `GITHUB_TOKEN` raises the anonymous rate limit.
+3. **Hugging Face Hub** — catalog metadata and GGUF downloads. The public API
+   needs no token; `HF_TOKEN` is only required for *gated* repositories, which
+   are detected up front and marked in the UI. Every file is verified against the
+   LFS `oid` (its SHA-256) before it is moved into place.
+
+Model downloads land in `downloadDirectory` (default `.threadshelf/models`,
+override `THREADSHELF_MODELS_PATH`), which is always part of
+`effectiveModelDirectories` so discovery finds them without extra configuration.
 
 ## Known gaps (as of this writing)
 
