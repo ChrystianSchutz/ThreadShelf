@@ -1,6 +1,6 @@
 {
   "name": "threadshelf",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Local semantic search, backup, and RAG for your AI chats — ChatGPT, Claude, Google AI Studio, OpenRouter, LM Studio, and Grok — searchable from a web UI, HTTP API, or MCP",
   "license": "MIT",
@@ -10,11 +10,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ChrystianSchutz/viewerHistoriLLM.git"
+    "url": "git+https://github.com/ChrystianSchutz/ThreadShelf.git"
   },
-  "homepage": "https://github.com/ChrystianSchutz/viewerHistoriLLM#readme",
+  "homepage": "https://github.com/ChrystianSchutz/ThreadShelf#readme",
   "bugs": {
-    "url": "https://github.com/ChrystianSchutz/viewerHistoriLLM/issues"
+    "url": "https://github.com/ChrystianSchutz/ThreadShelf/issues"
   },
   "keywords": [
     "semantic-search",
