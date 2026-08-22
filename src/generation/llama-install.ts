@@ -554,13 +554,14 @@ const installCompanionArchives = async (
   targetDirectory: string,
   staging: string,
   onProgress?: (progress: InstallProgress) => void,
+  signal?: AbortSignal,
 ): Promise<void> => {
   for (const [index, companion] of companions.entries()) {
     const archive = join(staging, `companion-${index}-${basename(companion.filename)}`);
     const extracted = join(staging, `companion-${index}-extracted`);
     await mkdir(extracted);
     onProgress?.({ phase: 'downloading', downloadedBytes: 0 });
-    await downloadAndVerify(companion.url, archive, companion.sha256, onProgress);
+    await downloadAndVerify(companion.url, archive, companion.sha256, onProgress, signal);
     onProgress?.({ phase: 'inspecting' });
     await inspectLlamaArchive(archive);
     onProgress?.({ phase: 'extracting' });
@@ -595,7 +596,12 @@ export const installLlamaCpp = async (
   {
     installRoot = defaultLlamaInstallRoot(),
     onProgress,
-  }: { installRoot?: string; onProgress?: (progress: InstallProgress) => void } = {},
+    signal,
+  }: {
+    installRoot?: string;
+    onProgress?: (progress: InstallProgress) => void;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<InstallResult> => {
   const safeTag = source.tag.replace(/[^a-zA-Z0-9._-]/g, '_');
   const safeFlavor = source.flavor?.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -643,6 +649,7 @@ export const installLlamaCpp = async (
         dirname(executablePath),
         staging,
         onProgress,
+        signal,
       );
       await writeFile(
         join(destination, 'THREADSHELF_INSTALL.json'),
@@ -658,10 +665,12 @@ export const installLlamaCpp = async (
     const extracted = join(staging, 'extracted');
     await mkdir(extracted);
     onProgress?.({ phase: 'downloading', downloadedBytes: 0 });
-    await downloadAndVerify(source.url, archive, source.sha256, onProgress);
+    await downloadAndVerify(source.url, archive, source.sha256, onProgress, signal);
+    signal?.throwIfAborted();
     onProgress?.({ phase: 'inspecting' });
     await inspectLlamaArchive(archive);
     onProgress?.({ phase: 'extracting' });
+    signal?.throwIfAborted();
     await extractArchive(archive, extracted);
     const found = await findRecursively(
       extracted,
@@ -672,7 +681,13 @@ export const installLlamaCpp = async (
     if (!executable) throw new Error('Archive does not contain llama-server');
     if (process.platform !== 'win32') await chmod(executable, 0o755);
     if (source.companions?.length) {
-      await installCompanionArchives(source.companions, dirname(executable), staging, onProgress);
+      await installCompanionArchives(
+        source.companions,
+        dirname(executable),
+        staging,
+        onProgress,
+        signal,
+      );
     }
     if (source.releaseUrl?.includes('github.com/ggml-org/llama.cpp/')) {
       onProgress?.({ phase: 'licensing' });

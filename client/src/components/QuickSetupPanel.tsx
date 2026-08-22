@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, QuickSetupPlanChangedError } from '../api';
 import type { QuickSetupPlan } from '../types';
 import { toast } from '../toast';
 import { fmtBytes } from '../utils';
@@ -71,7 +71,15 @@ export function QuickSetupPanel({ onCompleted }: QuickSetupPanelProps) {
     setPercent(0);
     try {
       await api.runQuickSetup(
-        { variant: variant || undefined },
+        {
+          variant: variant || undefined,
+          // Pin what was approved on screen so the server resolves the same plan
+          // and can refuse if anything moved underneath it.
+          model: plan?.model?.repoId,
+          quant: plan?.model?.quant,
+          releaseTag: plan?.runtime.tag,
+          fingerprint: plan?.fingerprint,
+        },
         (event) => {
           if (event.type === 'progress') {
             const where = event.step === 'runtime' ? 'llama.cpp' : 'Model';
@@ -86,16 +94,23 @@ export function QuickSetupPanel({ onCompleted }: QuickSetupPanelProps) {
       onCompleted?.();
       recheck();
     } catch (cause) {
-      if (!controller.signal.aborted) {
-        toast.error(cause instanceof Error ? cause.message : 'Setup failed.');
+      if (controller.signal.aborted) return;
+      if (cause instanceof QuickSetupPlanChangedError) {
+        // Nothing was downloaded. Show what changed and let the user approve it.
+        if (cause.plan) setPlan(cause.plan);
+        setStatus('');
+        toast.error(cause.message);
+        return;
       }
+      toast.error(cause instanceof Error ? cause.message : 'Setup failed.');
     } finally {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [variant, onCompleted, recheck]);
+  }, [variant, plan, onCompleted, recheck]);
 
-  const nothingToDo = plan?.runtime.action === 'reuse' && !plan.model;
+  const nothingToDo =
+    plan?.runtime.action === 'reuse' && (!plan.model || plan.model.action === 'reuse');
 
   return (
     <div className="panel generation-panel">
@@ -161,7 +176,11 @@ export function QuickSetupPanel({ onCompleted }: QuickSetupPanelProps) {
                 <li data-action={plan.model.action}>
                   <span className="quick-setup-step-title">
                     {plan.model.repoId} · {plan.model.quant}
-                    <em>{fmtBytes(plan.model.totalBytes)}</em>
+                    <em>
+                      {plan.model.action === 'reuse'
+                        ? 'already downloaded'
+                        : fmtBytes(plan.model.totalBytes)}
+                    </em>
                   </span>
                   <span className="quick-setup-step-meta">
                     {plan.model.files.length} file{plan.model.files.length === 1 ? '' : 's'} ·

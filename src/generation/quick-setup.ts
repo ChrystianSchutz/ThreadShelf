@@ -16,7 +16,13 @@ import {
   TRUSTED_PUBLISHERS,
   type CatalogModelDetail,
 } from './model-catalog.js';
-import { downloadModel, planModelDownload, type ModelDownloadPlan } from './model-download.js';
+import {
+  downloadModel,
+  modelFilesPresent,
+  planModelDownload,
+  type ModelDownloadPlan,
+} from './model-download.js';
+import { createHash } from 'crypto';
 import { updateGenerationConfig } from './config.js';
 
 /**
@@ -64,6 +70,8 @@ export interface QuickSetupPlan {
   readonly model?: QuickSetupModelStep;
   readonly totalDownloadBytes: number;
   readonly warnings: readonly string[];
+  /** Identifies exactly what this plan would fetch; see quickSetupFingerprint. */
+  readonly fingerprint: string;
 }
 
 export type QuickSetupProgress =
@@ -77,6 +85,36 @@ export type QuickSetupProgress =
   | { readonly step: 'done'; readonly executablePath: string; readonly modelPath?: string };
 
 const CANDIDATE_LIMIT = 8;
+
+/**
+ * A stable identity for "what this plan will fetch": versions, digests and
+ * sizes, nothing else. Hardware readings and warnings are deliberately excluded
+ * — free VRAM drifts constantly and would invalidate a plan the user is still
+ * reading. The server compares this against the value the client approved before
+ * it downloads anything.
+ */
+export const quickSetupFingerprint = (plan: QuickSetupPlan): string => {
+  const material = {
+    runtime: {
+      action: plan.runtime.action,
+      tag: plan.runtime.tag,
+      variant: plan.runtime.variant,
+      sha256: plan.runtime.sha256 ?? null,
+      companions: plan.runtime.companions.map((companion) => companion.sha256),
+    },
+    model: plan.model
+      ? {
+          action: plan.model.action,
+          repoId: plan.model.repoId,
+          quant: plan.model.quant,
+          totalBytes: plan.model.totalBytes,
+          files: plan.model.files.map((file) => file.sha256 ?? `size:${file.sizeBytes}`),
+        }
+      : null,
+    totalDownloadBytes: plan.totalDownloadBytes,
+  };
+  return createHash('sha256').update(JSON.stringify(material)).digest('hex').slice(0, 32);
+};
 
 const percentOf = (done: number, total?: number): number | undefined =>
   total && total > 0 ? Math.min(100, Math.round((done / total) * 100)) : undefined;
@@ -133,11 +171,14 @@ export const buildQuickSetupPlan = async ({
   variant,
   repoId,
   quant,
+  releaseTag,
   fetchImpl = fetch,
 }: {
   variant?: LlamaVariant;
   repoId?: string;
   quant?: string;
+  /** Pins the upstream build so re-resolving an approved plan is deterministic. */
+  releaseTag?: string;
   fetchImpl?: typeof fetch;
 } = {}): Promise<QuickSetupPlan> => {
   const hardware = await inspectHardware();
@@ -145,7 +186,7 @@ export const buildQuickSetupPlan = async ({
 
   const chosenVariant: LlamaVariant =
     variant ?? (process.platform === 'darwin' ? 'cpu' : hardware.suggestedVariant);
-  const release = await resolveLlamaRelease({ fetchImpl });
+  const release = await resolveLlamaRelease({ tag: releaseTag, fetchImpl });
 
   let source: InstallSource;
   try {
@@ -195,8 +236,11 @@ export const buildQuickSetupPlan = async ({
       detail: selection.detail,
       fetchImpl,
     });
+    // A model already on disk must not be presented as a fresh multi-gigabyte
+    // transfer; the downloader would skip it anyway.
+    const present = await modelFilesPresent(downloadPlan);
     model = {
-      action: 'download',
+      action: present ? 'reuse' : 'download',
       repoId: downloadPlan.repoId,
       quant: downloadPlan.quant,
       totalBytes: downloadPlan.totalBytes,
@@ -227,14 +271,15 @@ export const buildQuickSetupPlan = async ({
         runtime.companions.reduce((sum, companion) => sum + (companion.sizeBytes ?? 0), 0)
       : 0;
 
-  return {
+  const plan: QuickSetupPlan = {
     hardware,
     runtime,
     model,
-    totalDownloadBytes:
-      runtimeBytes + (model?.action === 'download' ? model.totalBytes : 0),
+    totalDownloadBytes: runtimeBytes + (model?.action === 'download' ? model.totalBytes : 0),
     warnings,
+    fingerprint: '',
   };
+  return { ...plan, fingerprint: quickSetupFingerprint(plan) };
 };
 
 export const runQuickSetupPlan = async (
@@ -252,12 +297,14 @@ export const runQuickSetupPlan = async (
   let executablePath = plan.runtime.executablePath;
 
   if (plan.runtime.action === 'install') {
+    signal?.throwIfAborted();
     onProgress?.({ step: 'runtime', phase: 'resolving' });
     // The plan is re-resolved rather than trusted: a client must not be able to
     // hand the server an arbitrary URL to fetch and execute.
     const release = await resolveLlamaRelease({ tag: plan.runtime.tag, fetchImpl });
     const source = sourceFromRelease(release, { variant: plan.runtime.variant });
     const result = await installLlamaCpp(source, {
+      signal,
       onProgress: (progress) =>
         onProgress?.({
           step: 'runtime',

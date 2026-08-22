@@ -1,5 +1,6 @@
 import { Router, type Response } from 'express';
 import { requireLoopback } from './loopback.js';
+import { abortOnDisconnect, isAbortError } from './stream-abort.js';
 import { inspectHardware, judgeFit } from '../generation/hardware.js';
 import {
   CatalogError,
@@ -11,6 +12,7 @@ import {
 import { downloadModel, planModelDownload } from '../generation/model-download.js';
 import {
   buildQuickSetupPlan,
+  quickSetupFingerprint,
   runQuickSetupPlan,
   type QuickSetupPlan,
 } from '../generation/quick-setup.js';
@@ -30,9 +32,6 @@ const fail = (res: Response, error: unknown): void => {
   console.error('[/api/generation/catalog]', error);
   res.status(502).json({ error: error instanceof Error ? error.message : 'Catalog request failed' });
 };
-
-const isAbort = (error: unknown): boolean =>
-  error instanceof DOMException ? error.name === 'AbortError' : false;
 
 /** NDJSON, matching the ingest and chat streams the client already consumes. */
 const openStream = (res: Response): ((event: unknown) => void) => {
@@ -93,8 +92,7 @@ router.get('/api/generation/catalog/model', requireLoopback, async (req, res) =>
 });
 
 router.post('/api/generation/catalog/download', requireLoopback, async (req, res) => {
-  const controller = new AbortController();
-  req.on('aborted', () => controller.abort());
+  const controller = abortOnDisconnect(req, res, 'Download cancelled');
   try {
     const plan = await planModelDownload({
       repoId: String(req.body?.repoId ?? ''),
@@ -110,7 +108,7 @@ router.post('/api/generation/catalog/download', requireLoopback, async (req, res
     send({ type: 'done', primaryPath: plan.primaryPath, directory: plan.directory });
     res.end();
   } catch (error) {
-    if (isAbort(error) || controller.signal.aborted) {
+    if (isAbortError(error) || controller.signal.aborted) {
       res.end();
       return;
     }
@@ -141,8 +139,7 @@ router.get('/api/generation/setup/plan', requireLoopback, async (req, res) => {
 });
 
 router.post('/api/generation/setup/run', requireLoopback, async (req, res) => {
-  const controller = new AbortController();
-  req.on('aborted', () => controller.abort());
+  const controller = abortOnDisconnect(req, res, 'Setup cancelled');
   try {
     // The confirmation flag is the recorded consent for this download.
     if (req.body?.confirm !== true) {
@@ -150,11 +147,31 @@ router.post('/api/generation/setup/run', requireLoopback, async (req, res) => {
       return;
     }
     const variant = String(req.body?.variant || '') as LlamaVariant;
+    // Re-resolved server-side rather than taken from the request: a client must
+    // never be able to hand the server a URL to fetch and execute. The pins keep
+    // that resolution deterministic, so it lands on what the user approved.
     const plan: QuickSetupPlan = await buildQuickSetupPlan({
       variant: variants.has(variant) ? variant : undefined,
       repoId: typeof req.body?.model === 'string' ? req.body.model : undefined,
       quant: typeof req.body?.quant === 'string' ? req.body.quant : undefined,
+      releaseTag: typeof req.body?.releaseTag === 'string' ? req.body.releaseTag : undefined,
     });
+
+    // The approved plan is identified by its digests, sizes and versions. If a
+    // nightly build moved, the catalog returned different files, or free VRAM
+    // changed the recommendation, the user is shown the new plan to approve
+    // rather than handed a download they never agreed to.
+    const approved = typeof req.body?.fingerprint === 'string' ? req.body.fingerprint : '';
+    const current = quickSetupFingerprint(plan);
+    if (approved && approved !== current) {
+      res.status(409).json({
+        error: 'The setup plan changed since it was shown. Review the new plan and confirm again.',
+        plan,
+        fingerprint: current,
+      });
+      return;
+    }
+
     const send = openStream(res);
     send({ type: 'plan', plan });
     const result = await runQuickSetupPlan(plan, {
@@ -164,7 +181,7 @@ router.post('/api/generation/setup/run', requireLoopback, async (req, res) => {
     send({ type: 'done', ...result });
     res.end();
   } catch (error) {
-    if (isAbort(error) || controller.signal.aborted) {
+    if (isAbortError(error) || controller.signal.aborted) {
       res.end();
       return;
     }

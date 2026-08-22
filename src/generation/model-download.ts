@@ -161,6 +161,21 @@ const alreadyPresent = async (file: ModelDownloadFile): Promise<boolean> => {
   return (await sha256File(file.destination)) === file.sha256;
 };
 
+/**
+ * Cheap "is this model already on disk?" check for planning screens: name and
+ * exact byte size only, no hashing. Re-reading 17 GB just to render a button
+ * label is not worth it — `downloadModel` still verifies the digest before it
+ * skips anything, so a size collision costs one re-download, not a bad model.
+ */
+export const modelFilesPresent = async (plan: ModelDownloadPlan): Promise<boolean> => {
+  if (plan.files.length === 0) return false;
+  for (const file of plan.files) {
+    const info = await stat(file.destination).catch(() => null);
+    if (!info?.isFile() || info.size !== file.sizeBytes) return false;
+  }
+  return true;
+};
+
 export const downloadModel = async (
   plan: ModelDownloadPlan,
   {
@@ -209,9 +224,13 @@ export const downloadModel = async (
           }),
       });
     } catch (error) {
-      // A partial multi-shard model is worse than none: llama.cpp would load it
-      // and fail cryptically. Leave finished shards, drop only the broken one.
-      await rm(`${file.destination}.part`, { force: true }).catch(() => undefined);
+      // Cancelling is not a fault: keep the partial file so pressing Download
+      // again resumes with a Range request instead of starting over. Any other
+      // failure drops it, because a partial shard that llama.cpp would try to
+      // load is worse than no shard at all.
+      if (!(error instanceof Error && error.name === 'AbortError')) {
+        await rm(`${file.destination}.part`, { force: true }).catch(() => undefined);
+      }
       throw error;
     }
     completedBytes += file.sizeBytes;

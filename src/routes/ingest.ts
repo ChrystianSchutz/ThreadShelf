@@ -13,6 +13,8 @@ import {
   normalizeBoolean,
 } from '../validation.js';
 
+import { abortOnDisconnect, isAbortError } from './stream-abort.js';
+
 const router = Router();
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || join(process.cwd(), '.uploads');
@@ -134,21 +136,6 @@ const writeEvent = (res: import('express').Response, payload: unknown): void => 
   res.write(`${JSON.stringify(payload)}\n`);
 };
 
-const abortOnDisconnect = (
-  req: import('express').Request,
-  res: import('express').Response,
-): AbortController => {
-  const controller = new AbortController();
-  req.once('aborted', () => controller.abort(new DOMException('Indexing stopped', 'AbortError')));
-  res.once('close', () => {
-    if (!res.writableEnded) controller.abort(new DOMException('Indexing stopped', 'AbortError'));
-  });
-  return controller;
-};
-
-const isAbortError = (error: unknown): boolean =>
-  error instanceof Error && error.name === 'AbortError';
-
 const canonicalSourcePath = (filePath: string): string => {
   const canonical = resolve(filePath).replace(/\\/g, '/');
   return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
@@ -254,7 +241,7 @@ router.post('/api/ingest-upload-progress', upload.any(), async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
   if (typeof res.flushHeaders === 'function') res.flushHeaders();
-  const controller = abortOnDisconnect(req, res);
+  const controller = abortOnDisconnect(req, res, 'Indexing stopped');
 
   try {
     writeEvent(res, {
@@ -334,7 +321,7 @@ router.post('/api/ingest-progress', async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
   if (typeof res.flushHeaders === 'function') res.flushHeaders();
-  const controller = abortOnDisconnect(req, res);
+  const controller = abortOnDisconnect(req, res, 'Indexing stopped');
 
   const onProgress = (data: unknown) => {
     res.write(`${JSON.stringify(data)}\n`);

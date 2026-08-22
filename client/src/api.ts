@@ -27,6 +27,17 @@ import type {
   ThreadShelfChatSummary,
 } from './types';
 
+/** Raised when the server's re-resolved setup plan differs from the approved one. */
+export class QuickSetupPlanChangedError extends Error {
+  constructor(
+    message: string,
+    public readonly plan?: QuickSetupPlan,
+  ) {
+    super(message);
+    this.name = 'QuickSetupPlanChangedError';
+  }
+}
+
 class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -399,7 +410,13 @@ export const api = {
   },
 
   async runQuickSetup(
-    input: { variant?: string; model?: string; quant?: string },
+    input: {
+      variant?: string;
+      model?: string;
+      quant?: string;
+      releaseTag?: string;
+      fingerprint?: string;
+    },
     onEvent: (event: QuickSetupEvent) => void,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -407,10 +424,22 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // The server refuses to download anything without this flag; it is the
-      // recorded consent for the whole plan shown on screen.
+      // recorded consent for the exact plan identified by `fingerprint`.
       body: JSON.stringify({ ...input, confirm: true }),
       signal,
     });
+    // A 409 means the resolved plan no longer matches the approved one; the body
+    // carries the replacement so the caller can show it and ask again.
+    if (response.status === 409) {
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        plan?: QuickSetupPlan;
+      };
+      throw new QuickSetupPlanChangedError(
+        payload.error ?? 'The setup plan changed since it was shown.',
+        payload.plan,
+      );
+    }
     await readNdjsonStream<QuickSetupEvent>(response, (event) => {
       onEvent(event);
       if (event.type === 'error') throw new Error(event.error);

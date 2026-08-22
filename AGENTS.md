@@ -54,13 +54,14 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
   store.ts          LanceDB access
   validation.ts     Turn/types + input validation
   routes/           HTTP routes (health, search, thread, collections, files, ingest, insights)
+    stream-abort.ts        Shared "client went away" AbortController for streamed routes
   services/         search, thread, collections, insights business logic
   generation/       Experimental Alpha provider plugins, config, model discovery, llama wrapper
     downloader.ts          Shared resumable, hash-verifying downloader (runtime + models)
     model-catalog.ts       Read-only Hugging Face GGUF browser (public API, no token)
     model-download.ts      Plans and fetches catalog models into the download directory
     hardware.ts            Accelerator/RAM detection and the model "will it fit" verdict
-    quick-setup.ts         One-screen setup plan (runtime + model) and its runner
+    quick-setup.ts         One-screen setup plan (runtime + model), fingerprint, runner
     master-prompts.ts      User system prompts on disk (.threadshelf/master-prompts.json)
     error-log.ts           Optional rotating generation errors (.threadshelf/generation-errors.log)
     filesystem-browser.ts  Loopback-only, directory-only model-root browser
@@ -247,6 +248,18 @@ Three, all opt-in and none of them carrying chat content:
 Model downloads land in `downloadDirectory` (default `.threadshelf/models`,
 override `THREADSHELF_MODELS_PATH`), which is always part of
 `effectiveModelDirectories` so discovery finds them without extra configuration.
+
+Two rules hold for every route that streams a long download:
+
+- Wrap it in `abortOnDisconnect` (`src/routes/stream-abort.ts`). Listening only
+  to `req`'s `aborted` is not enough — a browser cancelling a `fetch` fires
+  `res`'s `close`, and missing it leaves the server downloading gigabytes after
+  the user pressed Cancel. A cancelled transfer keeps its `.part` file so the
+  next attempt resumes; any other failure deletes it.
+- The one-click setup re-resolves its plan server-side (a client must never hand
+  the server a URL to fetch and execute), then compares `quickSetupFingerprint`
+  against the value the client approved. A mismatch returns 409 with the new plan
+  rather than downloading something the user never agreed to.
 
 ## Known gaps (as of this writing)
 

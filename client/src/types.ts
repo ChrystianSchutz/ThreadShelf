@@ -374,6 +374,7 @@ export interface QuickSetupPlan {
   };
   readonly totalDownloadBytes: number;
   readonly warnings: readonly string[];
+  readonly fingerprint: string;
 }
 
 export type QuickSetupEvent =
