@@ -2,7 +2,7 @@
 
 All notable changes to ThreadShelf are documented here.
 
-## Unreleased
+## 1.2.0 — 2026-09-13
 
 ### Archive durability
 
