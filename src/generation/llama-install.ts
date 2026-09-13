@@ -175,6 +175,16 @@ export const findLlamaExecutables = async (
   return unique([...direct.filter((path): path is string => path !== null), ...nested]);
 };
 
+/** Build of a ThreadShelf-managed install path such as `…/llama.cpp/b10809-cuda/llama-server`. */
+export const managedLlamaBuild = (
+  path: string,
+): { readonly tag: string; readonly build: number; readonly flavor: string } | null => {
+  const match = path.match(/[\\/]llama\.cpp[\\/](b(\d+))-([a-z0-9]+)[\\/]/i);
+  return match?.[1] && match[2] && match[3]
+    ? { tag: match[1], build: Number(match[2]), flavor: match[3].toLowerCase() }
+    : null;
+};
+
 const githubHeaders = (env: NodeJS.ProcessEnv = process.env): Record<string, string> => {
   const token = (env.GITHUB_TOKEN || env.GH_TOKEN || '').trim();
   return {
@@ -212,7 +222,8 @@ const asRelease = (value: unknown): LlamaRelease => {
 
 export const fetchLatestLlamaRelease = async (
   fetchImpl: typeof fetch = fetch,
-): Promise<LlamaRelease> => asRelease(await (await githubGet(LLAMA_CPP_RELEASE_API, fetchImpl)).json());
+): Promise<LlamaRelease> =>
+  asRelease(await (await githubGet(LLAMA_CPP_RELEASE_API, fetchImpl)).json());
 
 export const fetchLlamaReleaseByTag = async (
   tag: string,
@@ -237,9 +248,7 @@ export const readNightlyTagPointer = async (
   release: LlamaRelease,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string | null> => {
-  const pointer = release.assets.find(
-    (asset) => asset.name.toLowerCase() === NIGHTLY_TAG_ASSET,
-  );
+  const pointer = release.assets.find((asset) => asset.name.toLowerCase() === NIGHTLY_TAG_ASSET);
   if (!pointer) return null;
   const response = await fetchImpl(pointer.browser_download_url, {
     redirect: 'follow',

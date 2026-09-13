@@ -2,16 +2,17 @@ import { randomUUID } from 'node:crypto';
 import {
   getStoredThreads,
   listThreadSummaries,
-  replaceThreadShelfChunksForConversation,
+  deleteStoredFile,
   replaceThreadsForFile,
   StoredThreadWriteError,
   updateStoredThread,
   updateStoredThreadFromCurrent,
+  renameStoredThread,
+  indexStoredFile,
   type StoredThreadRow,
 } from '../store.js';
 import { validateTurns, ValidationError, type Turn } from '../validation.js';
 import type { ChatResponse } from './types.js';
-import { indexThreadShelfTurns, type ThreadShelfIndexTarget } from './thread-index.js';
 import { addManualCollection } from '../services/collections.js';
 import { portableModelLabel } from '../model-label.js';
 
@@ -63,28 +64,6 @@ export class ThreadShelfChatBusyError extends Error {
 }
 
 const activeChats = new Set<string>();
-const indexVersions = new Map<string, number>();
-const indexQueues = new Map<string, Promise<void>>();
-
-const indexKey = (target: ThreadShelfIndexTarget): string =>
-  `${target.collection}\0${target.sourceFile}\0${target.conversationKey}`;
-
-const queueIndexOperation = async <T>(key: string, operation: () => Promise<T>): Promise<T> => {
-  const previous = indexQueues.get(key) ?? Promise.resolve();
-  let release: () => void = () => {};
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = previous.catch(() => undefined).then(() => current);
-  indexQueues.set(key, queued);
-  await previous.catch(() => undefined);
-  try {
-    return await operation();
-  } finally {
-    release();
-    if (indexQueues.get(key) === queued) indexQueues.delete(key);
-  }
-};
 
 const acquireGenerationKey = (key: string): (() => void) => {
   if (activeChats.has(key)) throw new ThreadShelfChatBusyError();
@@ -113,11 +92,7 @@ const idFromSourceFile = (sourceFile: string): string | null => {
 };
 
 const parseTurns = (row: StoredThreadRow): Turn[] => {
-  try {
-    return validateTurns(JSON.parse(row.turnsJson));
-  } catch {
-    return [];
-  }
+  return validateTurns(JSON.parse(row.turnsJson));
 };
 
 const markCreatedChatTurns = (turns: readonly Turn[]): Turn[] =>
@@ -172,37 +147,18 @@ const updateChat = async (chat: ThreadShelfChat): Promise<void> => {
   );
 };
 
-const indexWithStatus = async (
-  target: ThreadShelfIndexTarget,
-): Promise<GenerationPersistenceStatus> => {
-  const key = indexKey(target);
-  const version = (indexVersions.get(key) ?? 0) + 1;
-  indexVersions.set(key, version);
+const indexWithStatus = async (target: {
+  readonly collection: string;
+  readonly sourceFile: string;
+}): Promise<GenerationPersistenceStatus> => {
   try {
-    const indexedChunks = await queueIndexOperation(key, () => indexThreadShelfTurns(target));
+    const indexedChunks = await indexStoredFile(target.collection, target.sourceFile);
     return { saved: true, indexed: true, indexedChunks };
   } catch (error) {
     const warning = `Conversation was saved, but semantic indexing failed and will be retried: ${error instanceof Error ? error.message : String(error)}`;
     console.warn('[generation:index]', warning);
-    const retry = (attempt: number): void => {
-      const timer = setTimeout(
-        () => {
-          if (indexVersions.get(key) !== version) return;
-          void queueIndexOperation(key, async () => {
-            if (indexVersions.get(key) !== version) return;
-            try {
-              await indexThreadShelfTurns(target);
-            } catch (retryError) {
-              console.warn(`[generation:index:retry:${attempt}]`, retryError);
-              if (attempt < 3 && indexVersions.get(key) === version) retry(attempt + 1);
-            }
-          });
-        },
-        2_000 * 2 ** (attempt - 1),
-      );
-      timer.unref();
-    };
-    retry(1);
+    // The pending marker was written atomically with the turns. The server's
+    // recovery worker retries it from current storage, including after restart.
     return { saved: true, indexed: false, indexedChunks: 0, warning };
   }
 };
@@ -220,9 +176,6 @@ const migrateLegacyChat = async (row: StoredThreadRow): Promise<ThreadShelfChat>
   await indexWithStatus({
     collection: THREADSHELF_CHAT_COLLECTION,
     sourceFile: row.sourceFile,
-    conversationKey: chat.id,
-    title: chat.title,
-    turns: chat.turns,
   });
   return chat;
 };
@@ -261,9 +214,6 @@ export const createThreadShelfChat = async (
     await indexWithStatus({
       collection: THREADSHELF_CHAT_COLLECTION,
       sourceFile: sourceFileForId(chat.id),
-      conversationKey: chat.id,
-      title: chat.title,
-      turns,
     });
   }
   return chat;
@@ -277,26 +227,27 @@ export const renameThreadShelfChat = async (
   // A bare Error would surface as a 502; an empty title is a client mistake.
   if (!trimmed) throw new ValidationError('A chat title cannot be empty', { field: 'title' });
   const chat = await getThreadShelfChat(value);
-  const renamed: ThreadShelfChat = {
-    ...chat,
-    title: trimmed.length > CHAT_TITLE_MAX ? trimmed.slice(0, CHAT_TITLE_MAX) : trimmed,
-  };
-  // Title lives on the __threads row (used by the list and thread view); chunk
-  // metadata keeps the old title, which never surfaces in search results.
-  await updateChat(renamed);
-  return renamed;
+  return toChat(
+    await renameStoredThread(
+      THREADSHELF_CHAT_COLLECTION,
+      sourceFileForId(chat.id),
+      chat.id,
+      trimmed.slice(0, CHAT_TITLE_MAX),
+    ),
+  );
 };
 
 export const deleteThreadShelfChat = async (value: unknown): Promise<void> => {
-  const chat = await getThreadShelfChat(value);
-  const sourceFile = sourceFileForId(chat.id);
-  await replaceThreadShelfChunksForConversation(
-    THREADSHELF_CHAT_COLLECTION,
-    sourceFile,
-    chat.id,
-    [],
-  );
-  await replaceThreadsForFile(THREADSHELF_CHAT_COLLECTION, sourceFile, 'threadshelf', []);
+  const release = acquireThreadShelfChat(value);
+  try {
+    const chat = await getThreadShelfChat(value);
+    // A crash during legacy migration can leave both copies. Remove the fallback
+    // first so deleting the primary copy cannot make the legacy one reappear.
+    await deleteStoredFile(LEGACY_THREADSHELF_CHAT_COLLECTION, sourceFileForId(chat.id));
+    await deleteStoredFile(THREADSHELF_CHAT_COLLECTION, sourceFileForId(chat.id));
+  } finally {
+    release();
+  }
 };
 
 export const getThreadShelfChat = async (value: unknown): Promise<ThreadShelfChat> => {
@@ -311,9 +262,6 @@ export const getThreadShelfChat = async (value: unknown): Promise<ThreadShelfCha
       await indexWithStatus({
         collection: THREADSHELF_CHAT_COLLECTION,
         sourceFile,
-        conversationKey: id,
-        title: chat.title,
-        turns: chat.turns,
       });
     }
     return chat;
@@ -360,27 +308,38 @@ export const appendThreadShelfChatExchange = async (
     createdInThreadShelf: true,
     generationProvider: response.provider,
   } as const;
-  const turns: Turn[] = [...chat.turns, { user: prompt, model: response.model, ...provenance }];
-  if (response.reasoning?.trim()) {
-    turns.push({ thinking: response.reasoning, model: response.model, ...provenance });
-  }
-  turns.push({ ai: response.content, model: response.model, ...provenance });
-  const updated: ThreadShelfChat = {
-    ...chat,
-    title: chat.turnCount === 0 && chat.title === 'New chat' ? titleFromPrompt(prompt) : chat.title,
-    updatedAt: now,
-    turnCount: turns.length,
-    model: response.model,
-    turns,
-  };
-  await updateChat(updated);
+  await updateStoredThreadFromCurrent(
+    THREADSHELF_CHAT_COLLECTION,
+    sourceFileForId(chat.id),
+    chat.id,
+    (current) => {
+      const turns: Turn[] = [
+        ...parseTurns(current),
+        { user: prompt, model: response.model, ...provenance },
+      ];
+      if (response.reasoning?.trim())
+        turns.push({ thinking: response.reasoning, model: response.model, ...provenance });
+      turns.push({ ai: response.content, model: response.model, ...provenance });
+      return {
+        provider: 'threadshelf',
+        conversation: {
+          key: current.conversationKey,
+          title:
+            current.turnCount === 0 && current.title === 'New chat'
+              ? titleFromPrompt(prompt)
+              : current.title,
+          turns,
+          createdInThreadShelf: true,
+          threadCreatedAt: current.threadCreatedAt,
+        },
+      };
+    },
+  );
   const persistence = await indexWithStatus({
     collection: THREADSHELF_CHAT_COLLECTION,
-    sourceFile: sourceFileForId(updated.id),
-    conversationKey: updated.id,
-    title: updated.title,
-    turns: updated.turns,
+    sourceFile: sourceFileForId(chat.id),
   });
+  const updated = await getThreadShelfChat(chat.id);
   return { chat: updated, persistence };
 };
 
@@ -395,10 +354,14 @@ export interface StoredThreadGenerationTarget {
   readonly turns: Turn[];
 }
 
-export const acquireStoredThreadGeneration = (target: StoredThreadGenerationTarget): (() => void) =>
-  acquireGenerationKey(
-    `stored\0${target.collection}\0${target.sourceFile}\0${target.conversationKey}`,
-  );
+export const acquireStoredThreadGeneration = (
+  target: StoredThreadGenerationTarget,
+): (() => void) =>
+  target.collection === THREADSHELF_CHAT_COLLECTION && idFromSourceFile(target.sourceFile)
+    ? acquireThreadShelfChat(idFromSourceFile(target.sourceFile))
+    : acquireGenerationKey(
+        `stored\0${target.collection}\0${target.sourceFile}\0${target.conversationKey}`,
+      );
 
 export const resolveStoredThreadGenerationTarget = async (
   collection: string,
@@ -434,9 +397,9 @@ export const appendStoredThreadExchange = async (
     createdInThreadShelf: true,
     generationProvider: response.provider,
   } as const;
-  let savedConversation;
+
   try {
-    savedConversation = await updateStoredThreadFromCurrent(
+    await updateStoredThreadFromCurrent(
       target.collection,
       target.sourceFile,
       target.conversationKey,
@@ -475,8 +438,5 @@ export const appendStoredThreadExchange = async (
   return indexWithStatus({
     collection: target.collection,
     sourceFile: target.sourceFile,
-    conversationKey: target.conversationKey,
-    title: savedConversation.title,
-    turns: savedConversation.turns as Turn[],
   });
 };

@@ -22,11 +22,30 @@ export interface LlamaCppConfig {
   readonly tensorSplit?: string;
   readonly threads: number;
   readonly flashAttention: LlamaFlashAttention;
+  readonly kvCache: LlamaKvCacheProfile;
+  readonly speculative: LlamaSpeculativeMode;
+  readonly reasoningEffort: LlamaReasoningEffort;
 }
 
 export type LlamaAccelerationMode = 'auto' | 'cpu' | 'gpu' | 'hybrid' | 'multi-gpu';
 export type LlamaSplitMode = 'layer' | 'row';
 export type LlamaFlashAttention = 'auto' | 'on' | 'off';
+/** default = llama.cpp f16; quality = q8_0 keys+values; memory = q4_0 keys+values. */
+export type LlamaKvCacheProfile = 'default' | 'quality' | 'memory';
+/** MTP/NextN speculative decoding: auto drafts 2 tokens, aggressive drafts 3. */
+export type LlamaSpeculativeMode = 'off' | 'auto' | 'aggressive';
+export type LlamaReasoningEffort = 'default' | 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+
+const KV_CACHE_PROFILES: readonly LlamaKvCacheProfile[] = ['default', 'quality', 'memory'];
+const SPECULATIVE_MODES: readonly LlamaSpeculativeMode[] = ['off', 'auto', 'aggressive'];
+const REASONING_EFFORTS: readonly LlamaReasoningEffort[] = [
+  'default',
+  'off',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+];
 
 export interface OpenRouterConfig {
   readonly baseUrl: string;
@@ -57,6 +76,9 @@ interface StoredGenerationConfig {
     readonly tensorSplit?: string;
     readonly threads?: number;
     readonly flashAttention?: LlamaFlashAttention;
+    readonly kvCache?: LlamaKvCacheProfile;
+    readonly speculative?: LlamaSpeculativeMode;
+    readonly reasoningEffort?: LlamaReasoningEffort;
   };
   readonly openRouter?: {
     readonly enforceZdr?: boolean;
@@ -79,6 +101,9 @@ export interface GenerationConfigUpdate {
     readonly tensorSplit?: unknown;
     readonly threads?: unknown;
     readonly flashAttention?: unknown;
+    readonly kvCache?: unknown;
+    readonly speculative?: unknown;
+    readonly reasoningEffort?: unknown;
   };
   readonly openRouter?: {
     readonly apiKey?: unknown;
@@ -361,6 +386,24 @@ export const getGenerationConfig = async (): Promise<PublicGenerationConfig> => 
         ) ??
         stored.llamaCpp?.flashAttention ??
         'auto',
+      kvCache:
+        parseEnvironmentOverride('LLAMA_CPP_KV_CACHE', (value) =>
+          parseEnum(value, KV_CACHE_PROFILES, 'LLAMA_CPP_KV_CACHE'),
+        ) ??
+        stored.llamaCpp?.kvCache ??
+        'quality',
+      speculative:
+        parseEnvironmentOverride('LLAMA_CPP_SPECULATIVE', (value) =>
+          parseEnum(value, SPECULATIVE_MODES, 'LLAMA_CPP_SPECULATIVE'),
+        ) ??
+        stored.llamaCpp?.speculative ??
+        'auto',
+      reasoningEffort:
+        parseEnvironmentOverride('LLAMA_CPP_REASONING_EFFORT', (value) =>
+          parseEnum(value, REASONING_EFFORTS, 'LLAMA_CPP_REASONING_EFFORT'),
+        ) ??
+        stored.llamaCpp?.reasoningEffort ??
+        'medium',
     },
     openRouter: {
       baseUrl: (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(
@@ -469,6 +512,18 @@ export const updateGenerationConfig = async (
         parseEnum(llamaUpdate?.flashAttention, ['auto', 'on', 'off'], 'flashAttention') ??
         current.llamaCpp?.flashAttention ??
         'auto',
+      kvCache:
+        parseEnum(llamaUpdate?.kvCache, KV_CACHE_PROFILES, 'kvCache') ??
+        current.llamaCpp?.kvCache ??
+        'quality',
+      speculative:
+        parseEnum(llamaUpdate?.speculative, SPECULATIVE_MODES, 'speculative') ??
+        current.llamaCpp?.speculative ??
+        'auto',
+      reasoningEffort:
+        parseEnum(llamaUpdate?.reasoningEffort, REASONING_EFFORTS, 'reasoningEffort') ??
+        current.llamaCpp?.reasoningEffort ??
+        'medium',
     },
     openRouter: {
       enforceZdr:

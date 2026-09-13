@@ -9,9 +9,12 @@ import type {
   LlamaDeviceInfo,
   LlamaOffloadInfo,
   LlamaRuntimeDiagnostics,
+  LlamaRuntimeProfileEntry,
 } from './types.js';
 import { findLlamaExecutables } from './llama-install.js';
 import { discoverGgufModels, localGgufModelName } from './model-discovery.js';
+import { readGgufMetadata } from './gguf-metadata.js';
+import { formatLlamaTuning, resolveLlamaTuning } from './llama-profile.js';
 
 interface ManagedServer {
   readonly child: ChildProcessWithoutNullStreams;
@@ -23,6 +26,7 @@ interface ManagedServer {
   readonly contextSize: number;
   readonly devices: readonly LlamaDeviceInfo[];
   readonly deviceDetectionSupported: boolean;
+  readonly profile: readonly LlamaRuntimeProfileEntry[];
   state: 'starting' | 'ready';
   logs: string;
   logsTruncated: boolean;
@@ -53,6 +57,12 @@ export interface LlamaRuntimeCapabilities {
   readonly flashAttentionFlag: boolean;
   readonly flashAttentionValues: boolean;
   readonly flashAttentionAuto: boolean;
+  readonly kvCacheTypes: boolean;
+  /** Values listed by `--spec-type`, e.g. `draft-mtp`. */
+  readonly speculativeTypes: readonly string[];
+  readonly parallelSlots: boolean;
+  readonly reasoningEffort: boolean;
+  readonly reasoningToggle: boolean;
 }
 
 const MODERN_CAPABILITIES: LlamaRuntimeCapabilities = {
@@ -60,6 +70,11 @@ const MODERN_CAPABILITIES: LlamaRuntimeCapabilities = {
   flashAttentionFlag: true,
   flashAttentionValues: true,
   flashAttentionAuto: true,
+  kvCacheTypes: true,
+  speculativeTypes: ['draft-mtp'],
+  parallelSlots: true,
+  reasoningEffort: true,
+  reasoningToggle: true,
 };
 
 export class LlamaModelBusyError extends Error {
@@ -76,6 +91,11 @@ export const parseLlamaRuntimeCapabilities = (help: string): LlamaRuntimeCapabil
     flashAttentionFlag: Boolean(flashLine),
     flashAttentionValues: /on\s*[|,/]\s*off/i.test(flashLine),
     flashAttentionAuto: /\bauto\b/i.test(flashLine),
+    kvCacheTypes: help.includes('--cache-type-k'),
+    speculativeTypes: help.match(/--spec-type\s+([a-z0-9_,-]+)/i)?.[1]?.split(',') ?? [],
+    parallelSlots: /--parallel\b/.test(help),
+    reasoningEffort: help.includes('--reasoning-effort'),
+    reasoningToggle: /--reasoning\s+\[on\|off/i.test(help),
   };
 };
 
@@ -422,6 +442,7 @@ export const getLlamaRuntimeDiagnostics = async (): Promise<LlamaRuntimeDiagnost
       devices: server.devices,
       deviceDetectionSupported: server.deviceDetectionSupported,
       offload: parseLlamaOffload(server.logs, server.devices, server.deviceDetectionSupported),
+      profile: server.profile,
     };
   }
   try {
@@ -497,10 +518,12 @@ const startManagedServer = async (model: string, requestedRevision: number): Pro
   if (config.llamaCpp.baseUrl) return `${config.llamaCpp.baseUrl.replace(/\/$/, '')}/v1`;
   const modelPath = await validateModel(model);
   const executable = await resolveExecutable();
-  const [capabilities, deviceInspection] = await Promise.all([
+  const [capabilities, deviceInspection, modelMetadata] = await Promise.all([
     inspectLlamaRuntimeCapabilities(executable),
     inspectLlamaDevices(executable),
+    readGgufMetadata(modelPath),
   ]);
+  const tuning = resolveLlamaTuning(config.llamaCpp, capabilities, modelMetadata);
   if (requestedRevision !== runtimeRevision) {
     throw new Error('llama.cpp model load was cancelled');
   }
@@ -524,7 +547,11 @@ const startManagedServer = async (model: string, requestedRevision: number): Pro
     '--port',
     String(port),
     '--jinja',
-    ...buildLlamaRuntimeArgs(config.llamaCpp, capabilities),
+    ...buildLlamaRuntimeArgs(
+      { ...config.llamaCpp, flashAttention: tuning.flashAttention },
+      capabilities,
+    ),
+    ...tuning.args,
   ];
   const child = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   child.stdin.end();
@@ -537,6 +564,7 @@ const startManagedServer = async (model: string, requestedRevision: number): Pro
     contextSize: config.llamaCpp.contextSize,
     devices: deviceInspection.devices,
     deviceDetectionSupported: deviceInspection.supported,
+    profile: tuning.entries,
     state: 'starting',
     baseUrl: `http://127.0.0.1:${port}`,
     logs: '',
@@ -547,6 +575,12 @@ const startManagedServer = async (model: string, requestedRevision: number): Pro
   appendLogText(
     server,
     `[ThreadShelf] Launching: ${[executable, ...args].map(shellDisplay).join(' ')}\n`,
+  );
+  appendLogText(
+    server,
+    `[ThreadShelf] Runtime profile${
+      modelMetadata?.architecture ? ` for ${modelMetadata.architecture}` : ''
+    }: ${formatLlamaTuning(tuning.entries)}\n`,
   );
   if (deviceInspection.supported && deviceInspection.devices.length === 0) {
     appendLogText(

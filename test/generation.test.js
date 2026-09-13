@@ -295,6 +295,11 @@ describe('generation configuration', () => {
       flashAttentionFlag: true,
       flashAttentionValues: false,
       flashAttentionAuto: false,
+      kvCacheTypes: false,
+      speculativeTypes: [],
+      parallelSlots: false,
+      reasoningEffort: false,
+      reasoningToggle: false,
     });
     const legacyArgs = buildLlamaRuntimeArgs(base, legacy);
     assert.deepStrictEqual(legacyArgs, ['--ctx-size', '8192', '--n-gpu-layers', '999']);

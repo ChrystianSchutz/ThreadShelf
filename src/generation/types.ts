@@ -97,6 +97,20 @@ export interface LlamaRuntimeDiagnostics {
   readonly devices: readonly LlamaDeviceInfo[];
   readonly deviceDetectionSupported: boolean;
   readonly offload: LlamaOffloadInfo;
+  /** Resolved performance profile of the latest managed launch. */
+  readonly profile?: readonly LlamaRuntimeProfileEntry[];
+}
+
+export interface LlamaRuntimeProfileEntry {
+  readonly setting: string;
+  readonly value: string;
+  /**
+   * settings = saved or environment value; threadshelf = wrapper default;
+   * model = derived from GGUF metadata; runtime = limited by llama-server.
+   */
+  readonly source: 'settings' | 'threadshelf' | 'model' | 'runtime';
+  readonly applied: boolean;
+  readonly note?: string;
 }
 
 export interface GenerationProviderStatus {

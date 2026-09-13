@@ -17,7 +17,7 @@ Parsing, embeddings, storage, and search run on the user's machine. **By default
 no chat data leaves the device.** The embedding model may be downloaded on first use.
 Treat all real chat exports as private.
 
-The optional conversation-generation layer is **Experimental Alpha**. Its
+The optional conversation-generation layer is **Experimental Beta**. Its
 primary `llama.cpp` engine is local and loopback-only. OpenRouter is an explicit,
 opt-in external exception: picking the OpenRouter provider tab sends selected
 user/assistant thread content, the optional master prompt, and the new prompt
@@ -56,7 +56,7 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
   routes/           HTTP routes (health, search, thread, collections, files, ingest, insights)
     stream-abort.ts        Shared "client went away" AbortController for streamed routes
   services/         search, thread, collections, insights business logic
-  generation/       Experimental Alpha provider plugins, config, model discovery, llama wrapper
+  generation/       Experimental Beta provider plugins, config, model discovery, llama wrapper
     downloader.ts          Shared resumable, hash-verifying downloader (runtime + models)
     model-catalog.ts       Read-only Hugging Face GGUF browser (public API, no token)
     model-download.ts      Plans and fetches catalog models into the download directory
@@ -152,11 +152,39 @@ stored thread -> generation registry -> llama.cpp (local) OR OpenRouter (externa
 - A **thread** is the full source conversation reconstructed around a search
   hit — served from `__threads` first, falling back to re-parsing the source
   file for collections indexed before threads storage existed.
+- llama.cpp performance tuning (`src/generation/llama-profile.ts`) maps the KV cache,
+  MTP and reasoning settings to flags only when `llama-server --help` and the GGUF
+  header (`gguf-metadata.ts`, e.g. `<arch>.nextn_predict_layers`) support them;
+  otherwise the option is logged as skipped. Never gate on model-name strings, never
+  emit asymmetric KV cache pairs, and never change sampling in a performance preset.
+  llama.cpp is not pinned: `setup:llama --check` compares against the latest stable release.
 - A **ThreadShelf-created chat** is also normalized into turns, but is stored in
   the protected `threadshelf_conversations` collection with
   `createdInThreadShelf: true`. It has no fake export file. Completed exchanges
   and imported-thread continuations are persisted by `src/generation/threads.ts`
   and only their ThreadShelf-authored chunks are refreshed in semantic search.
+- Archive replacements use a single LanceDB merge commit. `__threads.indexPending`
+  is a durable index job, committed with the turns (`local`, `all`, `delete`, or
+  collection-wide `reset`; empty means indexed; `invalid` marks an undecodable
+  row whose raw data is retained). The HTTP server, MCP server and `ingest`/`search`
+  CLIs all run recovery against current stored turns; failures persist
+  `indexAttempts`/`indexRetryAt`/`indexError` with 15 s–1 h backoff and pause
+  after 8 attempts until the thread changes. Deletion tombstones and reset
+  markers are hidden from thread lists; pending full replacements are hidden from
+  search until their matching vectors are published. Embedding never runs under
+  the global `__threads` lock: read a snapshot, embed, then re-check the snapshot
+  before committing (retry on change). Keep collection then thread-table lock
+  ordering; never queue saved turn snapshots for a later retry. LanceDB is opened
+  with `readConsistencyInterval: 0` so processes see each other's commits.
+- Rename updates only the title column; appends build turns from the current row
+  inside the thread-table lock.
+- Reimport preserves ThreadShelf-authored continuations, including branches whose
+  conversation keys disappear. A rewritten positional key preserves the old
+  branch separately. Exports that parse to zero conversations are skipped and
+  never delete archived rows. `clearFirst` stages the entire folder and its
+  embeddings before committing; invalid, empty or failed files and pre-commit
+  cancellation leave the old collection intact and return
+  `replacementSkipped: true`. This staging uses memory proportional to the folder.
 - Supported providers live in `src/parser.ts` (`detectProvider`): `google-ai-studio`,
   `anthropic`, `openai`, `openrouter`, `lm-studio`, `grok`. Adding a provider = add a detector + a
   `build…Conversations` function + a fixture + tests.
@@ -214,6 +242,10 @@ locale or time zone only when that behavior is what the test is meant to verify.
   provider fixtures there once.
 - UI selectors are stable IDs/classes (`#searchInput`, `#collection-<name>`,
   `.result`, `#threadOverlay`, `#threadContent`). Prefer those over text matches.
+- llama.cpp process tests use `test/shared/fake-llama.js`, a stand-in `llama-server`
+  that records argv and serves `/health` plus a chat stream (a `sh` script on
+  Linux/macOS; on Windows a tiny launcher compiled with the .NET Framework `csc.exe`,
+  skipped when absent). Synthetic GGUF headers come from `test/shared/gguf.js`.
 - Embeddings run locally; the first E2E run downloads the model and is slow.
   Subsequent runs are cached.
 

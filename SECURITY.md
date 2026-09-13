@@ -35,7 +35,7 @@ access by default.
 
 ## Experimental Generation Boundary
 
-Conversation generation is **Experimental Alpha**. Managed `llama-server`
+Conversation generation is **Experimental Beta**. Managed `llama-server`
 processes bind to an ephemeral `127.0.0.1` port, configured llama.cpp URLs must
 be loopback-only, and selected GGUF files must be under configured model roots.
 
