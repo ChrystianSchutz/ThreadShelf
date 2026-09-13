@@ -164,6 +164,8 @@ export interface IngestProgress {
 }
 
 export interface IngestResultSummary {
+  readonly replacementSkipped?: boolean;
+  readonly skippedFiles?: readonly string[];
   readonly conversations?: number;
   readonly ingested?: number;
   readonly files?: readonly string[];
@@ -172,6 +174,9 @@ export interface IngestResultSummary {
 }
 
 export interface IngestStreamEvent {
+  readonly progressPercent?: number;
+  readonly embeddingDone?: number;
+  readonly embeddingTotal?: number;
   readonly status?: 'starting' | 'progress' | 'completed' | 'error' | string;
   readonly phase?: string;
   readonly totalFiles?: number;
@@ -260,6 +265,7 @@ export interface LlamaRuntimeDiagnostics {
   readonly logsTruncated: boolean;
   readonly devices: readonly LlamaDeviceInfo[];
   readonly deviceDetectionSupported: boolean;
+  readonly profile?: readonly LlamaRuntimeProfileEntry[];
   readonly offload: {
     readonly mode: 'cpu' | 'gpu' | 'hybrid' | 'unknown';
     readonly gpuLayers?: number;
@@ -405,6 +411,18 @@ export interface GenerationProviderStatus {
   readonly detail: string;
 }
 
+export type LlamaKvCacheProfile = 'default' | 'quality' | 'memory';
+export type LlamaSpeculativeMode = 'off' | 'auto' | 'aggressive';
+export type LlamaReasoningEffort = 'default' | 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface LlamaRuntimeProfileEntry {
+  readonly setting: string;
+  readonly value: string;
+  readonly source: 'settings' | 'threadshelf' | 'model' | 'runtime';
+  readonly applied: boolean;
+  readonly note?: string;
+}
+
 export interface GenerationConfig {
   readonly experimentalAlpha: true;
   readonly llamaCpp: {
@@ -420,6 +438,9 @@ export interface GenerationConfig {
     readonly tensorSplit?: string;
     readonly threads: number;
     readonly flashAttention: LlamaFlashAttention;
+    readonly kvCache?: LlamaKvCacheProfile;
+    readonly speculative?: LlamaSpeculativeMode;
+    readonly reasoningEffort?: LlamaReasoningEffort;
   };
   readonly openRouter: {
     readonly baseUrl: string;

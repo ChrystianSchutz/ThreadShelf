@@ -13,7 +13,7 @@ thread, and continue it with a local GGUF model through `llama.cpp` or the
 explicitly external OpenRouter provider.
 
 The archive pipeline—parsing, embeddings, LanceDB storage, search, HTTP API, and
-MCP—runs locally. Conversation generation is an **Experimental Alpha**:
+MCP—runs locally. Conversation generation is an **Experimental Beta**:
 `llama.cpp` stays loopback-only; switching to the clearly marked
 **OpenRouter · external** provider sends the selected user/assistant context and
 new prompt off-device.
@@ -363,7 +363,7 @@ and narrow the list with the filter box.
 
 ![ThreadShelf conversation generation with local llama.cpp and external OpenRouter](docs/assets/conversation-generation.png)
 
-> **Experimental Alpha.** The archive/search path is the stable release scope;
+> **Experimental Beta.** The archive/search path is the stable release scope;
 > generation interfaces and model compatibility may still change. Original
 > export files are never modified.
 
@@ -509,7 +509,7 @@ Generation configuration, created-chat storage, eject, and chat endpoints are
 loopback-only even when the read/search UI is exposed with `HOST` and
 `ALLOWED_HOSTS`. Full setup, persistence semantics, routing controls, runtime
 diagnostics, and API examples are documented in
-[Experimental Generation](docs/GENERATION_ALPHA.md).
+[Experimental Generation](docs/GENERATION_BETA.md).
 
 ## Archive insights
 
@@ -591,7 +591,7 @@ CI runs the full gate on Linux and lightweight core checks on Windows.
   should still be validated against your own data before relying on exact stats.
 - Undocumented provider formats can change without notice; keep small
   anonymized fixtures for any real export shape that breaks parsing.
-- Conversation generation is **Experimental Alpha**; archive indexing and search
+- Conversation generation is **Experimental Beta**; archive indexing and search
   do not depend on it.
 - ThreadShelf is a single-user local application. The HTTP API has no user
   accounts or authentication and should remain bound to loopback unless it is
@@ -631,7 +631,7 @@ Missing Playwright browsers? `npx playwright install chromium`.
 | `CHUNK_MAX_CHARS`                         | `2000`                             | Max characters per embedded chunk.                                    |
 | `CHUNK_OVERLAP_CHARS`                     | `100`                              | Overlap between long chunks.                                          |
 | `EMBED_BATCH_SIZE`                        | `25`                               | Embedding batch size during ingest.                                   |
-| `GENERATION_CONFIG_PATH`                  | `.threadshelf/generation.json`     | Non-secret Experimental Alpha generation settings.                    |
+| `GENERATION_CONFIG_PATH`                  | `.threadshelf/generation.json`     | Non-secret Experimental Beta generation settings.                     |
 | `MASTER_PROMPTS_PATH`                     | `.threadshelf/master-prompts.json` | Saved master (system) prompts.                                        |
 | `LLAMA_CPP_SERVER`                        | _(auto)_                           | Absolute path to an existing `llama-server` executable.               |
 | `LLAMA_CPP_BASE_URL`                      | _(empty)_                          | Existing loopback-only llama.cpp server URL.                          |
@@ -665,7 +665,7 @@ checks.
 - [Architecture](docs/ARCHITECTURE.md) — data flow, modules, storage, API.
 - [MCP Setup](docs/MCP.md) — run the stdio MCP server and what it exposes.
 - [OpenRouter Export](docs/OPENROUTER.md) — the browser export flow + limitations.
-- [Experimental Generation](docs/GENERATION_ALPHA.md) — llama.cpp/OpenRouter setup, privacy, and API.
+- [Experimental Generation](docs/GENERATION_BETA.md) — llama.cpp/OpenRouter setup, privacy, and API.
 - [Real Data Testing](docs/REAL_DATA_TESTING.md) — validate private exports safely.
 - [FAQ](docs/FAQ.md) — common questions.
 - [Changelog](CHANGELOG.md) — release highlights.
@@ -674,7 +674,7 @@ checks.
 ## Privacy boundary
 
 Indexing, embeddings, storage, search, MCP, and llama.cpp inference are local.
-The explicitly selected **Experimental Alpha OpenRouter generation is not
+The explicitly selected **Experimental Beta OpenRouter generation is not
 local**: it sends the selected archive or ThreadShelf chat's user/assistant
 history and prompt to OpenRouter and
 the routed provider. Two other surfaces reach the network but never carry

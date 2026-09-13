@@ -7,6 +7,7 @@ import {
   defaultLlamaInstallRoot,
   findLlamaExecutables,
   installLlamaCpp,
+  managedLlamaBuild,
   resolveLlamaRelease,
   selectReleaseAsset,
   sourceFromRelease,
@@ -52,7 +53,7 @@ export const parseArguments = (args: readonly string[]): Arguments => {
 };
 
 const usage = (): void => {
-  console.log(`ThreadShelf llama.cpp setup — EXPERIMENTAL ALPHA
+  console.log(`ThreadShelf llama.cpp setup — EXPERIMENTAL BETA
 
 With no arguments this command only searches for an existing llama-server.
 It never downloads or installs unless you explicitly pass --install or --url.
@@ -109,6 +110,19 @@ export const main = async (argv: readonly string[] = process.argv.slice(2)): Pro
     console.log(`Latest compatible official release: ${release!.tag_name}`);
     console.log(`Asset: ${asset.name}`);
     console.log(`Release: ${release!.html_url}`);
+    const installed = existing
+      .map(managedLlamaBuild)
+      .filter((build): build is NonNullable<typeof build> => build !== null)
+      .sort((left, right) => right.build - left.build)[0];
+    const latestBuild = Number(release!.tag_name.replace(/^b/i, ''));
+    if (installed && Number.isFinite(latestBuild)) {
+      console.log(
+        installed.build >= latestBuild
+          ? `Installed managed build ${installed.tag}-${installed.flavor} is up to date.`
+          : `Update available: ${installed.tag}-${installed.flavor} → ${release!.tag_name}. ` +
+              `Install it with: npm run setup:llama -- -- --install --variant ${installed.flavor}`,
+      );
+    }
     console.log('No files were downloaded or installed.');
     return;
   }

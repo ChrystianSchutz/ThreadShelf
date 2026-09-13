@@ -3,7 +3,7 @@
 ThreadShelf is intentionally small: one Node.js server, reusable core modules,
 local embedding, local vector storage, and a React browser UI.
 
-Conversation generation is a separately marked **Experimental Alpha**. The
+Conversation generation is a separately marked **Experimental Beta**. The
 `llama.cpp` path is local; the explicitly selected OpenRouter path is external.
 
 ## High-Level Flow
@@ -52,6 +52,40 @@ Created chat -> internal __threads namespace -> generation provider -> persisted
 - Finds likely export files recursively.
 - Skips known metadata/account files.
 - Parses files, chunks turns, embeds chunks, and writes rows to storage.
+- Reimport merges local continuations into matching conversations; missing keys
+  retain their locally continued branch. Rewritten positional keys fork safely.
+- Files that parse to zero conversations are skipped (reported in `skippedFiles`)
+  and never remove archived rows, including in watch mode.
+- `clearFirst` stages the complete folder before publication. Invalid or empty
+  files, embedding failures, or cancellation before the archive commit preserve
+  the previous collection and report `replacementSkipped`; staging requires
+  memory proportional to the folder. Progress events carry per-batch
+  `embeddingDone`/`embeddingTotal` and `progressPercent`.
+
+Archive/index recovery (`src/store.ts`):
+
+- Replacements use atomic LanceDB merges, rather than separate delete/add calls.
+- Archive turns and their `indexPending` job commit together. The index is a
+  recoverable projection: `local` refreshes locally authored chunks, `all`
+  rebuilds a file, `delete` removes a tombstone, and `reset` rebuilds a collection.
+- Embedding runs outside the global `__threads` lock. Writers take a snapshot,
+  embed, then re-read the scope under the lock and commit only if it is unchanged
+  (up to 3 attempts), so imports never block unrelated chat saves.
+- A disconnect after archive publication does not interrupt the index commit.
+  An index failure retains the durable job with `indexAttempts`, `indexRetryAt`
+  and `indexError`; workers in the HTTP server, MCP server and CLIs retry with
+  15 s–1 h backoff and pause after 8 failures until the thread is edited.
+  Undecodable rows are marked `invalid`, keep their raw data, and are excluded
+  from search without hiding healthy conversations. Full replacements stay out
+  of search until the matching vectors are ready, avoiding stale turn offsets.
+- The LanceDB connection uses `readConsistencyInterval: 0`, so cached table
+  handles observe commits from other processes.
+- Deletion and recovery acquire the collection lock before the thread-table lock.
+  Deletion rejects an active chat generation with 409. Tombstones contain no turn
+  text and are removed after the vectors are deleted; retries cannot recreate a
+  deleted chat from an old in-memory snapshot.
+- `test/archive-recovery.test.js` injects write failures, races deletion with an
+  in-flight index, and kills a child process between archive/index commits.
 
 `src/parser.ts`
 
@@ -224,21 +258,21 @@ Core routes:
 - `POST /api/ingest-upload`
 - `GET /api/search`
 - `GET /api/thread`
-- `GET /api/generation/config` (**Experimental Alpha**, loopback only)
-- `PUT /api/generation/config` (**Experimental Alpha**, loopback only)
-- `GET /api/generation/models` (**Experimental Alpha**, loopback only)
-- `GET /api/generation/runtime` (**Experimental Alpha**, redacted runtime status)
-- `GET /api/generation/runtime/logs` / `POST /api/generation/runtime/eject` (**Experimental Alpha**, loopback only)
-- `GET /api/generation/directories` (**Experimental Alpha**, loopback only)
-- `/api/generation/prompts` CRUD and active selection (**Experimental Alpha**, loopback only)
-- `/api/generation/threads` list/create/get/rename/delete (**Experimental Alpha**, loopback only)
-- `POST /api/generation/chat` (**Experimental Alpha**, loopback only)
-- `POST /api/generation/chat/stream` (**Experimental Alpha**, loopback-only NDJSON)
-- `GET /api/generation/hardware` (**Experimental Alpha**, loopback only)
-- `GET /api/generation/catalog/search` / `GET /api/generation/catalog/model` (**Experimental Alpha**, loopback only)
-- `POST /api/generation/catalog/download` (**Experimental Alpha**, loopback-only NDJSON, cancellable)
-- `GET /api/generation/setup/plan` (**Experimental Alpha**, loopback only)
-- `POST /api/generation/setup/run` (**Experimental Alpha**, loopback-only NDJSON; needs `confirm` plus the approved `fingerprint`)
+- `GET /api/generation/config` (**Experimental Beta**, loopback only)
+- `PUT /api/generation/config` (**Experimental Beta**, loopback only)
+- `GET /api/generation/models` (**Experimental Beta**, loopback only)
+- `GET /api/generation/runtime` (**Experimental Beta**, redacted runtime status)
+- `GET /api/generation/runtime/logs` / `POST /api/generation/runtime/eject` (**Experimental Beta**, loopback only)
+- `GET /api/generation/directories` (**Experimental Beta**, loopback only)
+- `/api/generation/prompts` CRUD and active selection (**Experimental Beta**, loopback only)
+- `/api/generation/threads` list/create/get/rename/delete (**Experimental Beta**, loopback only)
+- `POST /api/generation/chat` (**Experimental Beta**, loopback only)
+- `POST /api/generation/chat/stream` (**Experimental Beta**, loopback-only NDJSON)
+- `GET /api/generation/hardware` (**Experimental Beta**, loopback only)
+- `GET /api/generation/catalog/search` / `GET /api/generation/catalog/model` (**Experimental Beta**, loopback only)
+- `POST /api/generation/catalog/download` (**Experimental Beta**, loopback-only NDJSON, cancellable)
+- `GET /api/generation/setup/plan` (**Experimental Beta**, loopback only)
+- `POST /api/generation/setup/run` (**Experimental Beta**, loopback-only NDJSON; needs `confirm` plus the approved `fingerprint`)
 
 ## Testing Layers
 

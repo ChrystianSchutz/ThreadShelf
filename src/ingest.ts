@@ -1,17 +1,7 @@
 import { readdir, readFile } from 'fs/promises';
 import { join, relative, resolve } from 'path';
 import { parseConversationGroups, detectProvider } from './parser.js';
-import { chunkTurns } from './chunking.js';
-import {
-  replaceChunksForFile,
-  replaceThreadsForFile,
-  resetCollection,
-  type ChunkRow,
-} from './store.js';
-
-const estimateTokens = (text: string): number => {
-  return Math.ceil(text.length / 4);
-};
+import { replaceImportedFiles, type ImportedFile } from './store.js';
 
 interface DirEntry {
   readonly name: string;
@@ -96,6 +86,9 @@ export const listExportFiles = async (folderPath: string): Promise<string[]> => 
 export interface ProgressEvent {
   readonly status: string;
   readonly phase?: string;
+  readonly progressPercent?: number;
+  readonly embeddingDone?: number;
+  readonly embeddingTotal?: number;
   readonly totalFiles: number;
   readonly processedFiles: number;
   readonly currentFile?: string;
@@ -112,6 +105,8 @@ export interface IngestResult {
   readonly totalTokens: number;
   readonly files: string[];
   readonly errors: string[];
+  readonly skippedFiles?: readonly string[];
+  readonly replacementSkipped?: boolean;
   readonly providers: Record<string, number>;
   readonly elapsedMs: number;
 }
@@ -147,12 +142,7 @@ export const ingestFolder = async (
 
   const files = chooseExportFiles(entries);
 
-  if (opts.clearFirst) {
-    opts.signal?.throwIfAborted();
-    await resetCollection(collection);
-  }
-
-  return ingestFiles(collection, files, opts);
+  return ingestFilesInternal(collection, files, opts, opts.clearFirst === true);
 };
 
 // Ingest an explicit list of export files (watch mode re-indexes just the
@@ -162,6 +152,13 @@ export const ingestFiles = async (
   collection: string,
   files: readonly string[],
   opts: IngestOptions = {},
+): Promise<IngestResult> => ingestFilesInternal(collection, files, opts, false);
+
+const ingestFilesInternal = async (
+  collection: string,
+  files: readonly string[],
+  opts: IngestOptions,
+  clearFirst: boolean,
 ): Promise<IngestResult> => {
   const { onProgress = () => {} } = opts;
   opts.signal?.throwIfAborted();
@@ -172,6 +169,8 @@ export const ingestFiles = async (
   let totalTokens = 0;
   let totalConversations = 0;
   const ingestedFiles: string[] = [];
+  const stagedFiles: ImportedFile[] = [];
+  const skippedFiles: string[] = [];
   const providers: Record<string, number> = {};
   const startTime = Date.now();
 
@@ -225,23 +224,17 @@ export const ingestFiles = async (
       }
 
       if (parsed.conversations.length === 0) {
+        skippedFiles.push(filePath);
         processedFiles++;
         continue;
       }
-      totalConversations += parsed.conversations.length;
 
-      const chunks = parsed.conversations.flatMap((conversation) =>
-        chunkTurns(conversation.turns, {
-          sourceFile: filePath,
-          provider,
-          conversationKey: conversation.key,
-          title: conversation.title,
-        }),
-      );
+      totalConversations += parsed.conversations.length;
 
       onProgress({
         status: 'progress',
-        phase: 'embedding',
+        phase: clearFirst ? 'reading' : 'embedding',
+        progressPercent: clearFirst ? (20 * processedFiles) / Math.max(totalFiles, 1) : undefined,
         totalFiles,
         processedFiles,
         currentFile: filePath,
@@ -252,21 +245,32 @@ export const ingestFiles = async (
         providers,
       });
 
-      const withIds: ChunkRow[] = chunks.map((ch, i) => {
-        totalTokens += estimateTokens(ch.text);
-        return {
-          ...ch,
-          id: `${filePath}|${ch.conversationKey || 'default'}|${ch.turnIndex}|${i}`,
-        };
-      });
-
-      await replaceChunksForFile(collection, filePath, withIds, { signal: opts.signal });
-      opts.signal?.throwIfAborted();
-      // Persist normalized turns so the thread view survives the source file
-      // being moved, rewritten, or deleted after indexing.
-      await replaceThreadsForFile(collection, filePath, provider, parsed.conversations);
-      totalChunks += withIds.length;
-      ingestedFiles.push(filePath);
+      const imported = { sourceFile: filePath, provider, conversations: parsed.conversations };
+      if (clearFirst) stagedFiles.push(imported);
+      else {
+        const previousTokens = totalTokens;
+        totalChunks += await replaceImportedFiles(collection, [imported], {
+          signal: opts.signal,
+          onEmbeddingProgress: (done, total, tokens) => {
+            totalTokens = previousTokens + tokens;
+            onProgress({
+              status: 'progress',
+              phase: 'embedding',
+              totalFiles,
+              processedFiles,
+              currentFile: filePath,
+              totalChunks,
+              totalTokens,
+              elapsedMs: Date.now() - startTime,
+              embeddingDone: done,
+              embeddingTotal: total,
+              progressPercent:
+                (95 * (processedFiles + done / Math.max(total, 1))) / Math.max(totalFiles, 1),
+            });
+          },
+        });
+        ingestedFiles.push(filePath);
+      }
     } catch (e) {
       if (opts.signal?.aborted) throw opts.signal.reason;
       errors.push(`${filePath}: ${(e as Error).message}`);
@@ -275,6 +279,8 @@ export const ingestFiles = async (
     processedFiles++;
     onProgress({
       status: 'progress',
+      phase: clearFirst ? 'reading' : undefined,
+      progressPercent: ((clearFirst ? 20 : 95) * processedFiles) / Math.max(totalFiles, 1),
       totalFiles,
       processedFiles,
       currentFile: filePath,
@@ -286,12 +292,44 @@ export const ingestFiles = async (
     });
   }
 
+  const replacementSkipped =
+    clearFirst && (errors.length > 0 || skippedFiles.length > 0 || stagedFiles.length === 0);
+  if (clearFirst && !replacementSkipped) {
+    try {
+      totalChunks = await replaceImportedFiles(collection, stagedFiles, {
+        clearFirst: true,
+        signal: opts.signal,
+        onEmbeddingProgress: (done, total, tokens) => {
+          totalTokens = tokens;
+          onProgress({
+            status: 'progress',
+            phase: 'embedding',
+            totalFiles,
+            processedFiles,
+            totalChunks: done,
+            totalTokens,
+            elapsedMs: Date.now() - startTime,
+            embeddingDone: done,
+            embeddingTotal: total,
+            progressPercent: 20 + (75 * done) / Math.max(total, 1),
+          });
+        },
+      });
+      ingestedFiles.push(...stagedFiles.map((file) => file.sourceFile));
+    } catch (error) {
+      if (opts.signal?.aborted) throw opts.signal.reason;
+      errors.push(`Collection replacement: ${(error as Error).message}`);
+    }
+  }
+
   return {
-    conversations: totalConversations,
+    conversations: replacementSkipped ? 0 : totalConversations,
     ingested: totalChunks,
     totalTokens,
     files: ingestedFiles,
     errors,
+    ...(skippedFiles.length ? { skippedFiles } : {}),
+    ...(replacementSkipped ? { replacementSkipped: true } : {}),
     providers,
     elapsedMs: Date.now() - startTime,
   };

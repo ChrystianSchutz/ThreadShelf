@@ -3,6 +3,7 @@ import { basename, resolve } from 'path';
 import { ingestFolder } from './ingest.js';
 import { watchFolder } from './watch.js';
 import { normalizeCollectionName } from './validation.js';
+import { recoverPendingIndexes, startIndexRecovery } from './store.js';
 
 const args = process.argv.slice(2);
 const clearFirst = args.includes('--clear');
@@ -68,6 +69,7 @@ try {
       }
     },
   });
+  await recoverPendingIndexes({ collection });
 
   console.error(
     `[ingest] done files=${result.files.length} chunks=${result.ingested} errors=${result.errors.length} elapsedMs=${Date.now() - startedAt}`,
@@ -78,6 +80,7 @@ try {
     process.exit(result.errors.length > 0 ? 2 : 0);
   }
 
+  const stopRecovery = startIndexRecovery();
   const watcher = watchFolder(collection, resolvedFolder, {
     debounceMs,
     onBatch: (files, batchResult, error) => {
@@ -95,6 +98,7 @@ try {
   console.error(`[watch] watching ${resolvedFolder} (debounce ${debounceMs}ms) — Ctrl+C to stop`);
 
   const shutdown = async () => {
+    stopRecovery();
     console.error('[watch] stopping…');
     await watcher.close();
     process.exit(0);

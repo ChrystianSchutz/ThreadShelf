@@ -2,6 +2,54 @@
 
 All notable changes to ThreadShelf are documented here.
 
+## Unreleased
+
+### Archive durability
+
+- Replace imported and ThreadShelf-authored rows with a single LanceDB merge
+  commit instead of delete-then-add, so a failed write no longer leaves a thread
+  or collection half-deleted.
+- Keep local continuations when an export is imported again, including branches
+  whose conversation key disappeared or was rewritten; exports that parse to zero
+  conversations are skipped and never delete archived rows.
+- `clearFirst` stages the whole folder and its embeddings before committing. An
+  invalid or empty file, or a cancellation, keeps the old collection and reports
+  `replacementSkipped` ("Nothing was saved…") instead of an empty collection.
+- Track pending index work durably in `__threads.indexPending`. The HTTP server,
+  the MCP server and the `ingest`/`search` CLIs recover it on start, with
+  15 s–1 h backoff, a pause after 8 failures, and quarantine of undecodable rows
+  that keeps their raw data.
+- Embed outside the global thread-table lock and re-check the snapshot before
+  committing, so a long import no longer blocks saving a chat answer elsewhere.
+- Rename changes only the title, and appending an answer reads the current turns
+  under the lock, so neither can overwrite the other.
+- Open LanceDB with `readConsistencyInterval: 0`, so the server, MCP and CLIs see
+  each other's commits.
+- Share one embedding model load between concurrent callers and log its progress
+  to stderr, keeping the MCP stdout protocol clean.
+- Report embedding progress per batch during indexing instead of stalling at 100%.
+
+### llama.cpp performance tuning
+
+- New Settings for the KV cache (Quality Q8 / Memory saver Q4 / F16), MTP
+  speculative decoding (Auto draft 2 / Aggressive draft 3 / Off) and reasoning
+  effort. Each option is applied only when `llama-server --help` and the GGUF
+  header support it, and is otherwise logged as skipped with a reason.
+- Read GGUF metadata (architecture, native context, NextN/MTP layers) with a
+  bounded, cached header parser instead of guessing from file names.
+- Run a single server slot (`--parallel 1`) so concurrent local chats queue.
+- Show the effective runtime profile in the llama.cpp log and the Settings
+  status badge, with skip reasons in its tooltip; warn above 64K context.
+- `setup:llama --check` compares an installed managed build with the latest
+  stable release and prints the update command for the installed variant.
+
+### Tests
+
+- Archive recovery regressions (`test/archive-recovery.test.js`), a fake
+  `llama-server` E2E for launch flags, diagnostics and restart on settings
+  change, GGUF parser hardening and cache tests, `setup:llama --check` output,
+  and Playwright coverage for the tuning settings and runtime badge.
+
 ## 1.1.0 — 2026-08-22
 
 ### Guided setup and model catalog

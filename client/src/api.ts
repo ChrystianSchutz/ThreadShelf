@@ -312,6 +312,9 @@ export const api = {
       readonly tensorSplit?: string;
       readonly threads?: number;
       readonly flashAttention?: 'auto' | 'on' | 'off';
+      readonly kvCache?: 'default' | 'quality' | 'memory';
+      readonly speculative?: 'off' | 'auto' | 'aggressive';
+      readonly reasoningEffort?: 'default' | 'off' | 'low' | 'medium' | 'high' | 'xhigh';
     };
     readonly openRouter?: {
       readonly apiKey?: string;
