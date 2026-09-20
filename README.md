@@ -288,6 +288,21 @@ npm run build:client   # builds the React UI into public/
 npm start              # serves on http://localhost:3000
 ```
 
+### Use ThreadShelf from an MCP client
+
+ThreadShelf includes a local stdio MCP server over the same archive used by the
+web UI and HTTP API.
+
+```bash
+npm run mcp
+```
+
+It exposes five tools for listing indexed data, inspecting statistics, semantic
+or exact search, and retrieving complete conversations.
+
+See [MCP setup](docs/MCP.md) for clean-clone installation, client configuration,
+and security notes.
+
 Then in the browser:
 
 1. **Create or select a collection** (think of it as a folder/project, e.g.
@@ -541,7 +556,7 @@ Example Claude Desktop config (`claude_desktop_config.json`):
   "mcpServers": {
     "threadshelf": {
       "command": "npm",
-      "args": ["run", "mcp"],
+      "args": ["run", "mcp", "--silent"],
       "cwd": "/absolute/path/to/this/repo"
     }
   }
