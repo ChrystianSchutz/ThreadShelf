@@ -1,10 +1,11 @@
-import { Router, type RequestHandler } from 'express';
+import { Router } from 'express';
 import {
   getGenerationConfig,
   llamaCppConfigChanged,
   updateGenerationConfig,
 } from '../generation/config.js';
 import { browseDirectories, isLoopbackRequest } from '../generation/filesystem-browser.js';
+import { requireLoopback } from './loopback.js';
 import {
   getManagedLlamaStatus,
   getLlamaRuntimeDiagnostics,
@@ -95,19 +96,6 @@ const errorResponse = (res: import('express').Response, error: unknown): void =>
   }
   console.error('[/api/generation]', error);
   res.status(502).json({ error: error instanceof Error ? error.message : 'Generation failed' });
-};
-
-const requireLoopback: RequestHandler = (req, res, next) => {
-  const forwardedFor = [req.headers['x-forwarded-for'], req.headers['x-real-ip']]
-    .flatMap((value) => (Array.isArray(value) ? value : value ? [value] : []))
-    .map(String);
-  if (
-    !isLoopbackRequest(req.socket.remoteAddress, forwardedFor, req.headers.forwarded, req.hostname)
-  ) {
-    res.status(403).json({ error: 'Local generation controls are available only from localhost' });
-    return;
-  }
-  next();
 };
 
 router.get('/api/generation/config', requireLoopback, async (_req, res) => {

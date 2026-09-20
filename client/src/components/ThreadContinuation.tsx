@@ -16,6 +16,7 @@ import { appendStableStreamChunk, compactModel, copyText } from '../utils';
 import { Icons } from '../icons';
 import { Markdown } from './Markdown';
 import { MasterPromptMenu } from './MasterPromptMenu';
+import { ModelCatalogModal } from './ModelCatalogModal';
 import { ModelCombobox } from './ModelCombobox';
 import { NumberCombobox } from './NumberCombobox';
 import { LlamaLogPanel } from './LlamaLogPanel';
@@ -126,6 +127,7 @@ export function ThreadContinuation({
   const [contextSize, setContextSize] = useState('8192');
   const [savingContextSize, setSavingContextSize] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const [createdThreadId, setCreatedThreadId] = useState('');
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const requestController = useRef<AbortController | null>(null);
@@ -210,7 +212,9 @@ export function ThreadContinuation({
           response.models.find((candidate) => candidate.loaded)?.id ?? response.models[0]?.id ?? '',
         );
         if (response.models.length === 0) {
-          setError('No GGUF models found. Add a model directory in Settings.');
+          setError(
+            'No GGUF models found. Download one from the model menu or add a directory in Settings.',
+          );
         }
       })
       .catch((cause: unknown) => {
@@ -271,7 +275,11 @@ export function ThreadContinuation({
 
   const loadModels = async (
     selectedProvider = provider,
-    options: { sort?: OpenRouterModelSort; freeOnly?: boolean } = {},
+    options: {
+      sort?: OpenRouterModelSort;
+      freeOnly?: boolean;
+      selectModel?: string;
+    } = {},
   ) => {
     setLoadingModels(true);
     setError('');
@@ -283,6 +291,13 @@ export function ThreadContinuation({
       setModels(response.models);
       setRuntime(response.runtime);
       setModel((current) => {
+        const preferred = options.selectModel
+          ? response.models.find(
+              (candidate) =>
+                candidate.id === options.selectModel || candidate.path === options.selectModel,
+            )
+          : undefined;
+        if (preferred) return preferred.id;
         const loaded = response.models.find((candidate) => candidate.loaded);
         if (loaded) return loaded.id;
         return response.models.some((candidate) => candidate.id === current)
@@ -292,7 +307,7 @@ export function ThreadContinuation({
       if (response.models.length === 0) {
         setError(
           selectedProvider === 'llama-cpp'
-            ? 'No GGUF models found. Add a model directory in Settings.'
+            ? 'No GGUF models found. Download one here or add a directory in Settings.'
             : 'OpenRouter returned no models.',
         );
       }
@@ -303,6 +318,12 @@ export function ThreadContinuation({
     } finally {
       setLoadingModels(false);
     }
+  };
+
+  const selectDownloadedModel = async (path: string) => {
+    await loadModels('llama-cpp', { selectModel: path });
+    setCatalogOpen(false);
+    setModelMenuOpen(true);
   };
 
   const isThreadShelfChat = Boolean(threadId);
@@ -925,15 +946,31 @@ export function ThreadContinuation({
                     onChange={setModel}
                     disabled={models.length === 0}
                   />
-                  <button
-                    className="btn sm icon-only"
-                    title="Refresh model list"
-                    aria-label="Refresh model list"
-                    disabled={loadingModels}
-                    onClick={() => void loadModels()}
-                  >
-                    {Icons.refresh}
-                  </button>
+                  <div className="model-popover-pick-actions">
+                    {provider === 'llama-cpp' && (
+                      <button
+                        className="btn sm icon-only"
+                        title="Browse and download GGUF models"
+                        aria-label="Browse and download GGUF models"
+                        disabled={sending}
+                        onClick={() => {
+                          setModelMenuOpen(false);
+                          setCatalogOpen(true);
+                        }}
+                      >
+                        {Icons.download}
+                      </button>
+                    )}
+                    <button
+                      className="btn sm icon-only"
+                      title="Refresh model list"
+                      aria-label="Refresh model list"
+                      disabled={loadingModels}
+                      onClick={() => void loadModels()}
+                    >
+                      {Icons.refresh}
+                    </button>
+                  </div>
                 </div>
 
                 {provider === 'openrouter' && (
@@ -1080,6 +1117,11 @@ export function ThreadContinuation({
           </div>
         </div>
       </div>
+      <ModelCatalogModal
+        open={catalogOpen}
+        onClose={() => setCatalogOpen(false)}
+        onDownloaded={(path) => void selectDownloadedModel(path)}
+      />
     </div>
   );
 }

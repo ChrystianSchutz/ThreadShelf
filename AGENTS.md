@@ -17,7 +17,7 @@ Parsing, embeddings, storage, and search run on the user's machine. **By default
 no chat data leaves the device.** The embedding model may be downloaded on first use.
 Treat all real chat exports as private.
 
-The optional conversation-generation layer is **Experimental Alpha**. Its
+The optional conversation-generation layer is **Experimental Beta**. Its
 primary `llama.cpp` engine is local and loopback-only. OpenRouter is an explicit,
 opt-in external exception: picking the OpenRouter provider tab sends selected
 user/assistant thread content, the optional master prompt, and the new prompt
@@ -54,14 +54,22 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
   store.ts          LanceDB access
   validation.ts     Turn/types + input validation
   routes/           HTTP routes (health, search, thread, collections, files, ingest, insights)
+    stream-abort.ts        Shared "client went away" AbortController for streamed routes
   services/         search, thread, collections, insights business logic
-  generation/       Experimental Alpha provider plugins, config, model discovery, llama wrapper
+  generation/       Experimental Beta provider plugins, config, model discovery, llama wrapper
+    downloader.ts          Shared resumable, hash-verifying downloader (runtime + models)
+    model-catalog.ts       Read-only Hugging Face GGUF browser (public API, no token)
+    model-download.ts      Plans and fetches catalog models into the download directory
+    hardware.ts            Accelerator/RAM detection and the model "will it fit" verdict
+    quick-setup.ts         One-screen setup plan (runtime + model), fingerprint, runner
     master-prompts.ts      User system prompts on disk (.threadshelf/master-prompts.json)
     error-log.ts           Optional rotating generation errors (.threadshelf/generation-errors.log)
     filesystem-browser.ts  Loopback-only, directory-only model-root browser
 client/             React + Vite + TypeScript web UI (npm workspace)
   src/              Components, pages, store (zustand), queries (react-query)
     components/ModelCombobox.tsx  Searchable generation models + local favorites
+    components/ModelCatalogModal.tsx  Hugging Face model browser (search, gating, VRAM fit)
+    components/QuickSetupPanel.tsx    One-confirmation llama.cpp + model install
     components/NumberCombobox.tsx Typeable token-budget dropdown (presets + free entry)
     components/MasterPromptMenu.tsx  Master-prompt editor (server-stored, sent with every request)
     components/NotFound.tsx       Router `defaultNotFoundComponent` for unknown URLs
@@ -144,11 +152,39 @@ stored thread -> generation registry -> llama.cpp (local) OR OpenRouter (externa
 - A **thread** is the full source conversation reconstructed around a search
   hit — served from `__threads` first, falling back to re-parsing the source
   file for collections indexed before threads storage existed.
+- llama.cpp performance tuning (`src/generation/llama-profile.ts`) maps the KV cache,
+  MTP and reasoning settings to flags only when `llama-server --help` and the GGUF
+  header (`gguf-metadata.ts`, e.g. `<arch>.nextn_predict_layers`) support them;
+  otherwise the option is logged as skipped. Never gate on model-name strings, never
+  emit asymmetric KV cache pairs, and never change sampling in a performance preset.
+  llama.cpp is not pinned: `setup:llama --check` compares against the latest stable release.
 - A **ThreadShelf-created chat** is also normalized into turns, but is stored in
   the protected `threadshelf_conversations` collection with
   `createdInThreadShelf: true`. It has no fake export file. Completed exchanges
   and imported-thread continuations are persisted by `src/generation/threads.ts`
   and only their ThreadShelf-authored chunks are refreshed in semantic search.
+- Archive replacements use a single LanceDB merge commit. `__threads.indexPending`
+  is a durable index job, committed with the turns (`local`, `all`, `delete`, or
+  collection-wide `reset`; empty means indexed; `invalid` marks an undecodable
+  row whose raw data is retained). The HTTP server, MCP server and `ingest`/`search`
+  CLIs all run recovery against current stored turns; failures persist
+  `indexAttempts`/`indexRetryAt`/`indexError` with 15 s–1 h backoff and pause
+  after 8 attempts until the thread changes. Deletion tombstones and reset
+  markers are hidden from thread lists; pending full replacements are hidden from
+  search until their matching vectors are published. Embedding never runs under
+  the global `__threads` lock: read a snapshot, embed, then re-check the snapshot
+  before committing (retry on change). Keep collection then thread-table lock
+  ordering; never queue saved turn snapshots for a later retry. LanceDB is opened
+  with `readConsistencyInterval: 0` so processes see each other's commits.
+- Rename updates only the title column; appends build turns from the current row
+  inside the thread-table lock.
+- Reimport preserves ThreadShelf-authored continuations, including branches whose
+  conversation keys disappear. A rewritten positional key preserves the old
+  branch separately. Exports that parse to zero conversations are skipped and
+  never delete archived rows. `clearFirst` stages the entire folder and its
+  embeddings before committing; invalid, empty or failed files and pre-commit
+  cancellation leave the old collection intact and return
+  `replacementSkipped: true`. This staging uses memory proportional to the folder.
 - Supported providers live in `src/parser.ts` (`detectProvider`): `google-ai-studio`,
   `anthropic`, `openai`, `openrouter`, `lm-studio`, `grok`. Adding a provider = add a detector + a
   `build…Conversations` function + a fixture + tests.
@@ -186,6 +222,14 @@ Three layers, all runnable offline:
    `npm run test:playwright`. **Requires** `npm run build:client` first and
    `npx playwright install chromium`.
 
+Test commands must be shell-independent on Windows and Linux and work on the
+minimum supported Node.js version. Do not rely on shell glob expansion in npm
+scripts; enumerate matching files in JavaScript and pass them as explicit
+arguments. Tests for `Intl` date/time output must not assume a locale-specific
+field order, punctuation, prefix relationship, or time zone. Compare against an
+equivalently configured formatter or inspect `formatToParts()`; set an explicit
+locale or time zone only when that behavior is what the test is meant to verify.
+
 ### Rules for E2E
 
 - Never point E2E at a user's real LanceDB/uploads — always use the temp dirs the
@@ -198,6 +242,10 @@ Three layers, all runnable offline:
   provider fixtures there once.
 - UI selectors are stable IDs/classes (`#searchInput`, `#collection-<name>`,
   `.result`, `#threadOverlay`, `#threadContent`). Prefer those over text matches.
+- llama.cpp process tests use `test/shared/fake-llama.js`, a stand-in `llama-server`
+  that records argv and serves `/health` plus a chat stream (a `sh` script on
+  Linux/macOS; on Windows a tiny launcher compiled with the .NET Framework `csc.exe`,
+  skipped when absent). Synthetic GGUF headers come from `test/shared/gguf.js`.
 - Embeddings run locally; the first E2E run downloads the model and is slow.
   Subsequent runs are cached.
 
@@ -213,6 +261,37 @@ Three layers, all runnable offline:
    in `client/src/styles/_tokens.scss`, and IndexingView support copy.
 6. Document it in `README.md` and `docs/ARCHITECTURE.md` (incl. a "tested on version X, format not
    guaranteed" note for undocumented formats — AI Studio, OpenRouter, LM Studio).
+
+## External network surfaces
+
+Three, all opt-in and none of them carrying chat content:
+
+1. **OpenRouter** — the only surface that sends conversation text off-device.
+2. **GitHub Releases** (`ggml-org/llama.cpp`) — release metadata; archives only
+   after explicit `--install`/`--url` consent or the setup screen's confirmation.
+   Upstream's `/releases/latest` points at a semver release with no binaries, so
+   `resolveLlamaRelease` follows the `nightly-tag.txt` pointer to the real
+   `bNNNNN` build. `GITHUB_TOKEN` raises the anonymous rate limit.
+3. **Hugging Face Hub** — catalog metadata and GGUF downloads. The public API
+   needs no token; `HF_TOKEN` is only required for *gated* repositories, which
+   are detected up front and marked in the UI. Every file is verified against the
+   LFS `oid` (its SHA-256) before it is moved into place.
+
+Model downloads land in `downloadDirectory` (default `.threadshelf/models`,
+override `THREADSHELF_MODELS_PATH`), which is always part of
+`effectiveModelDirectories` so discovery finds them without extra configuration.
+
+Two rules hold for every route that streams a long download:
+
+- Wrap it in `abortOnDisconnect` (`src/routes/stream-abort.ts`). Listening only
+  to `req`'s `aborted` is not enough — a browser cancelling a `fetch` fires
+  `res`'s `close`, and missing it leaves the server downloading gigabytes after
+  the user pressed Cancel. A cancelled transfer keeps its `.part` file so the
+  next attempt resumes; any other failure deletes it.
+- The one-click setup re-resolves its plan server-side (a client must never hand
+  the server a URL to fetch and execute), then compares `quickSetupFingerprint`
+  against the value the client approved. A mismatch returns 409 with the new plan
+  rather than downloading something the user never agreed to.
 
 ## Known gaps (as of this writing)
 

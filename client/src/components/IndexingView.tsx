@@ -12,7 +12,10 @@ function formatProgressStep(event: IngestStreamEvent): string {
 
   if (phase === 'uploading') return `Uploading ${done} / ${total} files`;
   if (phase === 'reading') return `Reading ${done} / ${total} files`;
-  if (phase === 'embedding') return `Embedding ${done} / ${total} files`;
+  if (phase === 'embedding')
+    return event.embeddingTotal !== undefined
+      ? `Embedding ${event.embeddingDone ?? 0} / ${event.embeddingTotal} chunks`
+      : `Embedding ${done} / ${total} files`;
   if (event.status === 'starting') return `Starting 0 / ${total} files`;
   return `${done} / ${total} files`;
 }
@@ -22,7 +25,7 @@ function progressFromEvent(event: IngestStreamEvent): IngestProgress {
   const done = event.processedFiles || 0;
 
   return {
-    pct: Math.round((done / total) * 100),
+    pct: Math.round(event.progressPercent ?? (done / total) * 100),
     step: formatProgressStep(event),
     chunks: event.totalChunks,
     time: event.elapsedMs,
@@ -32,6 +35,8 @@ function progressFromEvent(event: IngestStreamEvent): IngestProgress {
 
 function formatCompletedMessage(event: IngestStreamEvent): string {
   const result = event.result;
+  if (result?.replacementSkipped)
+    return 'Nothing was saved. The existing collection was kept because the folder contains empty or invalid exports, or no conversations. Fix the exports and retry.';
   const fileCount = result?.files?.length ?? 0;
   const conversations = result?.conversations ?? fileCount;
   const errorCount = result?.errors?.length ?? 0;
@@ -175,9 +180,7 @@ export function IndexingView({ collections, onRefresh }: IndexingViewProps) {
           .map(
             (item) =>
               (item as DataTransferItemWithEntry).webkitGetAsEntry?.() as
-                | DragFileSystemEntry
-                | null
-                | undefined,
+                DragFileSystemEntry | null | undefined,
           )
           .filter((entry): entry is DragFileSystemEntry => !!entry);
         const files = entries.length
@@ -244,7 +247,7 @@ export function IndexingView({ collections, onRefresh }: IndexingViewProps) {
     const onProgress = (event: IngestStreamEvent) => {
       if (event.status === 'completed') {
         setStatusMsg({
-          type: event.result?.errors?.length ? 'err' : 'info',
+          type: event.result?.errors?.length || event.result?.replacementSkipped ? 'err' : 'info',
           text: formatCompletedMessage(event),
         });
         return;

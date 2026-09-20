@@ -88,6 +88,9 @@ export function GenerationRuntimeBadge({ detailed = false }: { readonly detailed
     diagnostics?.executable ? `Selected executable: ${diagnostics.executable}` : undefined,
     `Detected compute: ${compute}`,
     '',
+    'Check for a newer stable llama.cpp build:',
+    'npm run setup:llama -- -- --check',
+    '',
     'Install CPU:',
     'npm run setup:llama -- -- --install --variant cpu',
     '',
@@ -100,6 +103,25 @@ export function GenerationRuntimeBadge({ detailed = false }: { readonly detailed
     'macOS: use the cpu variant; Metal is included automatically.',
   ]
     .filter((line): line is string => line !== undefined)
+    .join('\n');
+  // Status line such as "GPU · CUDA · ctx 64K · FA on · KV q8_0×q8_0 · MTP 2 · GPU weights 15.8 GiB".
+  const gpuWeightsMiB = Object.entries(diagnostics?.offload.deviceBufferMiB ?? {})
+    .filter(([device]) => !device.toUpperCase().startsWith('CPU'))
+    .reduce((sum, [, sizeMiB]) => sum + sizeMiB, 0);
+  const appliedProfile = (diagnostics?.profile ?? []).filter((entry) => entry.applied);
+  const runtimeProfile =
+    appliedProfile.length > 0 && runtime?.state !== 'stopped'
+      ? [
+          compute,
+          ...appliedProfile.map((entry) => `${entry.setting} ${entry.value}`),
+          gpuWeightsMiB > 0 ? `GPU weights ${(gpuWeightsMiB / 1024).toFixed(1)} GiB` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : '';
+  const runtimeProfileNotes = (diagnostics?.profile ?? [])
+    .filter((entry) => entry.note)
+    .map((entry) => `${entry.setting}: ${entry.applied ? '' : 'skipped, '}${entry.note}`)
     .join('\n');
   return (
     <div
@@ -130,6 +152,11 @@ export function GenerationRuntimeBadge({ detailed = false }: { readonly detailed
               : 'status unavailable'}
         </span>
         {detailed && runtime?.detail && <small>{runtime.detail}</small>}
+        {detailed && runtimeProfile && (
+          <small className="runtime-profile" title={runtimeProfileNotes || undefined}>
+            {runtimeProfile}
+          </small>
+        )}
       </span>
       {active && (
         <button type="button" disabled={ejecting} onClick={() => void eject()}>
