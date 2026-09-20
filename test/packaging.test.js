@@ -76,23 +76,30 @@ describe('bundled CLIs', () => {
     assert.match(cli, /runServer\(\)/);
   });
 
-  it('ships the compiled CLIs the subcommands point at', async () => {
+  it('has a source for every subcommand, and ships the build output', async () => {
+    // Assert on the sources, not on dist/: `npm test` runs before any build in
+    // `npm run check`, and a fresh clone has no dist/ at all. Whether the build
+    // actually emitted these files belongs to the "compiled distribution"
+    // suite below, which skips when dist/ is absent.
     const pkg = await readPackageJson();
     assert.ok(pkg.files.includes('dist/'));
-    for (const entry of ['cli.js', 'ingest-cli.js', 'search-cli.js']) {
-      assert.ok(existsSync(join(root, 'dist', 'src', entry)), `dist/src/${entry} is not built`);
+    for (const source of ['cli.ts', 'ingest-cli.ts', 'search-cli.ts']) {
+      assert.ok(existsSync(join(root, 'src', source)), `src/${source} is missing`);
     }
   });
 });
 
 describe('runtime filesystem discipline', () => {
-  const listSources = async (dir) => {
+  // Match the extension each tree is actually written in. Scanning for .js
+  // under src/ would also pick up stale output from an older build config and
+  // fail the guard on a file nobody ships.
+  const listSources = async (dir, extension) => {
     const entries = await readdir(dir, { withFileTypes: true });
     const files = await Promise.all(
       entries.map(async (entry) => {
         const full = join(dir, entry.name);
-        if (entry.isDirectory()) return listSources(full);
-        return entry.isFile() && /\.(ts|js)$/.test(entry.name) ? [full] : [];
+        if (entry.isDirectory()) return listSources(full, extension);
+        return entry.isFile() && entry.name.endsWith(extension) ? [full] : [];
       }),
     );
     return files.flat();
@@ -112,9 +119,9 @@ describe('runtime filesystem discipline', () => {
   it('never resolves persistent or package paths from process.cwd()', async () => {
     // bin/ is the npx entry point, so it matters at least as much as src/.
     const sources = [
-      ...(await listSources(join(root, 'src'))),
-      ...(await listSources(join(root, 'mcp'))),
-      ...(await listSources(join(root, 'bin'))),
+      ...(await listSources(join(root, 'src'), '.ts')),
+      ...(await listSources(join(root, 'mcp'), '.ts')),
+      ...(await listSources(join(root, 'bin'), '.js')),
     ];
     assert.ok(
       sources.some((file) => file.includes(`${sep}bin${sep}`)),
@@ -151,6 +158,22 @@ describe('compiled distribution', () => {
       !existsSync(join(root, 'dist', 'package.json')),
       'dist/package.json would shadow the real package root',
     );
+  });
+
+  it('emits every entry point the bin files import', async (t) => {
+    if (!existsSync(distPaths)) {
+      t.skip('dist/ is not built; npm run build:server covers this');
+      return;
+    }
+    for (const entry of [
+      ['src', 'server.js'],
+      ['src', 'cli.js'],
+      ['src', 'ingest-cli.js'],
+      ['src', 'search-cli.js'],
+      ['mcp', 'server.js'],
+    ]) {
+      assert.ok(existsSync(join(root, 'dist', ...entry)), `dist/${entry.join('/')} is missing`);
+    }
   });
 
   it('resolves the same paths once compiled', async (t) => {
