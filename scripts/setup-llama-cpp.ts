@@ -5,9 +5,10 @@ import { pathToFileURL } from 'url';
 import {
   customInstallSource,
   defaultLlamaInstallRoot,
-  fetchLatestLlamaRelease,
   findLlamaExecutables,
   installLlamaCpp,
+  managedLlamaBuild,
+  resolveLlamaRelease,
   selectReleaseAsset,
   sourceFromRelease,
   type LlamaVariant,
@@ -21,6 +22,7 @@ interface Arguments {
   readonly sha256?: string;
   readonly tag?: string;
   readonly destination?: string;
+  readonly release?: string;
   readonly variant: LlamaVariant;
 }
 
@@ -45,12 +47,13 @@ export const parseArguments = (args: readonly string[]): Arguments => {
     sha256: valueAfter(args, '--sha256'),
     tag: valueAfter(args, '--tag'),
     destination: valueAfter(args, '--destination'),
+    release: valueAfter(args, '--release'),
     variant,
   };
 };
 
 const usage = (): void => {
-  console.log(`ThreadShelf llama.cpp setup — EXPERIMENTAL ALPHA
+  console.log(`ThreadShelf llama.cpp setup — EXPERIMENTAL BETA
 
 With no arguments this command only searches for an existing llama-server.
 It never downloads or installs unless you explicitly pass --install or --url.
@@ -63,6 +66,7 @@ It never downloads or installs unless you explicitly pass --install or --url.
 
 Options:
   --variant cpu|vulkan|cuda|rocm|sycl          default: cpu (Metal is automatic on macOS)
+  --release bNNNNN                            pin an exact upstream build
   --destination PATH                          default: ${defaultLlamaInstallRoot()}
   --yes                                       skip the confirmation prompt
 
@@ -100,12 +104,25 @@ export const main = async (argv: readonly string[] = process.argv.slice(2)): Pro
     return;
   }
 
-  const release = args.url ? null : await fetchLatestLlamaRelease();
+  const release = args.url ? null : await resolveLlamaRelease({ tag: args.release });
   if (args.check && !args.install && !args.url) {
     const asset = selectReleaseAsset(release!, { variant: args.variant });
     console.log(`Latest compatible official release: ${release!.tag_name}`);
     console.log(`Asset: ${asset.name}`);
     console.log(`Release: ${release!.html_url}`);
+    const installed = existing
+      .map(managedLlamaBuild)
+      .filter((build): build is NonNullable<typeof build> => build !== null)
+      .sort((left, right) => right.build - left.build)[0];
+    const latestBuild = Number(release!.tag_name.replace(/^b/i, ''));
+    if (installed && Number.isFinite(latestBuild)) {
+      console.log(
+        installed.build >= latestBuild
+          ? `Installed managed build ${installed.tag}-${installed.flavor} is up to date.`
+          : `Update available: ${installed.tag}-${installed.flavor} → ${release!.tag_name}. ` +
+              `Install it with: npm run setup:llama -- -- --install --variant ${installed.flavor}`,
+      );
+    }
     console.log('No files were downloaded or installed.');
     return;
   }

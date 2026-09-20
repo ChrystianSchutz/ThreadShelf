@@ -1,5 +1,5 @@
 import { readdir, stat } from 'fs/promises';
-import { basename, extname, join, relative, resolve, sep } from 'path';
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'path';
 import type { GenerationModel } from './types.js';
 
 const MAX_MODELS = 10_000;
@@ -10,6 +10,10 @@ export const localGgufModelName = (modelPath: string): string =>
 
 const isInside = (path: string, root: string): boolean => {
   const rel = relative(resolve(root), resolve(path));
+  // Across Windows drives `relative` yields an absolute path, which carries no
+  // `..` prefix and would otherwise read as "inside" — silently dropping every
+  // model root that lives on a different drive than the first one.
+  if (isAbsolute(rel)) return false;
   return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !rel.includes('\0'));
 };
 

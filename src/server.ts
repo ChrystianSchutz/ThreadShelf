@@ -2,6 +2,7 @@ import './env.js';
 import express from 'express';
 import { join } from 'path';
 import apiRouter from './routes/index.js';
+import { startIndexRecovery } from './store.js';
 
 const app = express();
 app.use(express.json({ limit: '512kb' }));
@@ -81,6 +82,7 @@ const PORT = Number(portArg ?? process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
 app.listen(PORT, HOST, () => {
+  startIndexRecovery();
   console.log(`Server: http://localhost:${PORT}`);
   console.log('LanceDB at', process.env.LANCEDB_PATH || '.lancedb');
 });

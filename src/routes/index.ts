@@ -7,6 +7,7 @@ import threadRouter from './thread.js';
 import ingestRouter from './ingest.js';
 import insightsRouter from './insights.js';
 import generationRouter from './generation.js';
+import modelCatalogRouter from './model-catalog.js';
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.use(threadRouter);
 router.use(ingestRouter);
 router.use(insightsRouter);
 router.use(generationRouter);
+router.use(modelCatalogRouter);
 
 export default router;

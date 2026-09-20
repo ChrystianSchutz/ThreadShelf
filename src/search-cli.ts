@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
 import { searchAcrossCollections } from './services/search.js';
+import { recoverPendingIndexes } from './store.js';
 import {
   normalizeCollectionSelector,
   normalizeCount,
@@ -62,6 +63,7 @@ try {
   const { from, to } = normalizeDateRange(flags.get('from'), flags.get('to'));
   const n = normalizeCount(flags.get('n'), { defaultValue: 10 });
 
+  await recoverPendingIndexes({ collection });
   const results = await searchAcrossCollections(query, collection, {
     n,
     mode,
