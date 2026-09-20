@@ -28,7 +28,7 @@ jobs:
         run: npm ci
 
       - name: Cache embedding model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: node_modules/@huggingface/transformers/.cache
           key: hf-transformers-paraphrase-multilingual-minilm-l12-v2
