@@ -1,3 +1,5 @@
+import { dataPath } from './paths.js';
+
 interface PipelineOutput {
   readonly data: Float32Array;
   readonly dims?: number[];
@@ -16,7 +18,12 @@ export const getDimension = (): number => {
 };
 
 const loadPipeline = async (): Promise<Pipeline> => {
-  const { pipeline } = await import('@huggingface/transformers');
+  const { env, pipeline } = await import('@huggingface/transformers');
+  // Transformers.js caches model weights inside its own node_modules folder by
+  // default. For an `npx threadshelf` install that directory is disposable, so
+  // the ~50 MB model would be re-downloaded on every run. Keep it with the
+  // user's data instead.
+  env.cacheDir = process.env.THREADSHELF_MODEL_CACHE || dataPath('modelCache');
   return (await pipeline('feature-extraction', MODEL, {
     dtype: 'q8',
     progress_callback: (p: unknown) => {

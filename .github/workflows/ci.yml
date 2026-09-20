@@ -30,7 +30,7 @@ jobs:
       - name: Cache embedding model
         uses: actions/cache@v6
         with:
-          path: node_modules/@huggingface/transformers/.cache
+          path: .threadshelf/model-cache
           key: hf-transformers-paraphrase-multilingual-minilm-l12-v2
 
       - name: Install Playwright Chromium

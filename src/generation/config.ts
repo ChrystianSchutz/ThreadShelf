@@ -1,6 +1,7 @@
 import { existsSync } from 'fs';
 import { mkdir, readFile, rename, writeFile } from 'fs/promises';
 import { homedir } from 'os';
+import { dataPath } from '../paths.js';
 import { dirname, join, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { ValidationError } from '../validation.js';
@@ -119,7 +120,7 @@ const warnedInvalidEnvironmentValues = new Set<string>();
 
 export const generationConfigPath = (): string =>
   resolve(
-    process.env.GENERATION_CONFIG_PATH || join(process.cwd(), '.threadshelf', 'generation.json'),
+    process.env.GENERATION_CONFIG_PATH || dataPath('generationConfig'),
   );
 
 const normalizePaths = (paths: readonly string[]): string[] => [
@@ -147,7 +148,7 @@ export const defaultModelDirectories = (
 };
 
 export const defaultDownloadDirectory = (env: NodeJS.ProcessEnv = process.env): string =>
-  resolve(env.THREADSHELF_MODELS_PATH || join(process.cwd(), '.threadshelf', 'models'));
+  resolve(env.THREADSHELF_MODELS_PATH || dataPath('models'));
 
 const readStoredConfig = async (): Promise<StoredGenerationConfig> => {
   try {

@@ -1,10 +1,11 @@
 import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
+import { dataPath } from '../paths.js';
 import { listCollections, dropCollection } from '../store.js';
 
 // Overridable so test servers with an isolated LanceDB do not share (and
 // pollute) the real registry file in the repo/app directory.
-const COLLECTIONS_FILE = process.env.COLLECTIONS_PATH || join(process.cwd(), '.collections.json');
+const COLLECTIONS_FILE = process.env.COLLECTIONS_PATH || dataPath('collections');
 
 export const readManualCollections = async (): Promise<string[]> => {
   try {

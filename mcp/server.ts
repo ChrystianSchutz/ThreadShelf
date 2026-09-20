@@ -18,7 +18,13 @@ import {
   normalizeDateRange,
   normalizeSearchMode,
 } from '../src/validation.js';
-import pkg from '../package.json' with { type: 'json' };
+import { createRequire } from 'node:module';
+import { packagePath } from '../src/paths.js';
+
+// Read at runtime rather than `import ... with { type: 'json' }`: a JSON import
+// makes tsc copy package.json into dist/, which would shadow the real package
+// root when resolving bundled assets.
+const pkg = createRequire(import.meta.url)(packagePath('package.json')) as { version: string };
 
 const DEFAULT_PROTOCOL_VERSION = '2024-11-05';
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', DEFAULT_PROTOCOL_VERSION] as const;

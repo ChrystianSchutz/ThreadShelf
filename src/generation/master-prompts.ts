@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'fs/promises';
-import { dirname, join, resolve } from 'path';
+import { dirname, resolve } from 'path';
 import { randomUUID } from 'crypto';
+import { dataPath } from '../paths.js';
 import { ValidationError } from '../validation.js';
 
 /**
@@ -35,7 +36,7 @@ const MAX_TEXT_CHARS = 20_000;
 
 export const masterPromptsPath = (): string =>
   resolve(
-    process.env.MASTER_PROMPTS_PATH || join(process.cwd(), '.threadshelf', 'master-prompts.json'),
+    process.env.MASTER_PROMPTS_PATH || dataPath('masterPrompts'),
   );
 
 const isPrompt = (value: unknown): value is MasterPrompt =>

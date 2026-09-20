@@ -13,6 +13,7 @@ import {
   writeFile,
 } from 'fs/promises';
 import { homedir, tmpdir } from 'os';
+import { dataPath } from '../paths.js';
 import { basename, dirname, extname, join, resolve } from 'path';
 import { spawn } from 'child_process';
 import { downloadToFile, sha256File, type DownloadProgress } from './downloader.js';
@@ -97,7 +98,7 @@ const unique = (values: readonly string[]): string[] => [
 ];
 
 export const defaultLlamaInstallRoot = (): string =>
-  resolve(process.env.THREADSHELF_TOOLS_PATH || join(process.cwd(), '.threadshelf', 'tools'));
+  resolve(process.env.THREADSHELF_TOOLS_PATH || dataPath('tools'));
 
 export const llamaExecutableCandidates = ({
   platform = process.platform,

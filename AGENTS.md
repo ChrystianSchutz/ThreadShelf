@@ -105,14 +105,19 @@ root installs both.
 | `npm run ingest -- <folder> [collection] -- [flags]` | Ingest a folder (`--clear`; `--watch`; `--debounce`).                                   |
 | `npm run search -- "<query>" -- [flags]`             | Search from the CLI (`--mode keyword`, `--collection`, `--n`, `--json`).                |
 | `npm run setup:llama`                                | Local discovery only; `-- -- --check` reads metadata; install needs explicit consent.   |
+| `npm run build:package`                              | Build the publishable package: client UI into `public/`, server + MCP into `dist/`.     |
+| `npm pack --dry-run`                                 | Inspect exactly what would be published (runs `prepack`).                               |
+| `npm run pack:verify`                                | Pack, install into a temp dir, boot the CLI from an unrelated cwd, assert data landing. |
 
 **Before opening a PR / finishing a task, run `npm run check`.** If you only
 touched the parser/ingest/search, `npm test && npm run test:e2e` is the minimum.
 
 ## Conventions
 
-- **Language/runtime:** TypeScript, ESM (`"type": "module"`), Node 20.19+. Server
-  code runs directly through `tsx` — there is no separate server build step.
+- **Language/runtime:** TypeScript, ESM (`"type": "module"`), Node 20.19+. In
+  development the server runs directly through `tsx`; for distribution it is
+  compiled to plain JavaScript in `dist/` (`tsconfig.build.json`), because the
+  published package must not need `tsx` or `typescript` at runtime.
 - **Imports:** use `.js` extensions in relative imports (ESM + tsx requirement),
   e.g. `import { Turn } from './validation.js'`.
 - **Style:** Prettier + ESLint are the source of truth. Run `npm run format`
@@ -129,6 +134,17 @@ touched the parser/ingest/search, `npm test && npm run test:e2e` is the minimum.
   lets one long token widen its container. Grid rows that hold such text use
   `minmax(0, 1fr)` tracks; a bare `1fr` cannot shrink below min-content and the
   content escapes the card. `test/playwright/result-title.spec.js` guards both.
+- **Paths: never `process.cwd()`.** `src/paths.ts` is the single source of
+  truth. Package assets (built UI, browser export scripts) resolve from
+  `packagePath()`, which is anchored to `import.meta.url` — `npx threadshelf`
+  runs with the user's shell directory as cwd, so cwd says nothing about where
+  the code lives. Persistent user data resolves from `dataPath(key)`, which
+  never points inside the package: an npm/npx install directory is disposable.
+  A repository checkout keeps the historical repo-local dotfile layout; an
+  installed package uses `%LOCALAPPDATA%\ThreadShelf` or `~/.threadshelf`.
+  Explicit overrides (`LANCEDB_PATH`, `UPLOADS_DIR`, `THREADSHELF_DATA_DIR`, …)
+  always win. `test/packaging.test.js` fails the build if `process.cwd()`
+  reappears in `src/` or `mcp/`.
 - **No new runtime dependencies** without a clear reason — a goal of the project
   is to stay light and fully local. Never add anything that phones home.
 
@@ -292,6 +308,28 @@ Two rules hold for every route that streams a long download:
   the server a URL to fetch and execute), then compares `quickSetupFingerprint`
   against the value the client approved. A mismatch returns 409 with the new plan
   rather than downloading something the user never agreed to.
+
+## Publishing (npm)
+
+The package is published to npm as unscoped `threadshelf`, so `npx threadshelf`
+starts it with no clone and no build.
+
+- `bin/threadshelf.js` (web UI + API, plus `search`/`ingest`/`parse`
+  subcommands) and `bin/threadshelf-mcp.js` (MCP stdio) are plain JavaScript on
+  purpose and import from `dist/`, never from `src/`. Adding a CLI under `src/`
+  means adding a subcommand here too, otherwise it ships but is unreachable —
+  `test/packaging.test.js` guards the existing three.
+- `prepack` runs `build:package`, so `npm pack` / `npm publish` can never ship a
+  stale `dist/` or `public/`.
+- `files` in `package.json` is an allow-list. Anything not listed is not
+  published — keep `src/`, `test/`, `client/`, `docs/` (screenshots), `.env`,
+  `.lancedb/` and other user data out of it.
+- Releases run through `.github/workflows/publish.yml` on a `v*` tag, using npm
+  Trusted Publishing (OIDC). There is deliberately **no `NPM_TOKEN` secret**;
+  the workflow needs `id-token: write` and the npm side must list this repo and
+  `publish.yml` as a trusted publisher.
+- Release ritual: `npm version patch` then `git push --follow-tags`. The
+  workflow refuses to publish if the tag does not match `package.json`.
 
 ## Known gaps (as of this writing)
 
