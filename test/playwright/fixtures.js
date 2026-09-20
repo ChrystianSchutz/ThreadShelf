@@ -35,6 +35,8 @@ export const test = base.extend({
           MASTER_PROMPTS_PATH: join(tempRoot, 'master-prompts.json'),
           THREADSHELF_DISABLE_DEFAULT_MODEL_PATHS: '1',
           THREADSHELF_TOOLS_PATH: join(tempRoot, 'tools'),
+          // Model downloads must never reach the developer's real model folder.
+          THREADSHELF_MODELS_PATH: join(tempRoot, 'models'),
           // Never let a developer's private .env key affect isolated tests.
           OPENROUTER_API_KEY: '',
         },

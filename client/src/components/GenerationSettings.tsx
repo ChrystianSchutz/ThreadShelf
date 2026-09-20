@@ -5,24 +5,56 @@ import type {
   GenerationModel,
   LlamaAccelerationMode,
   LlamaFlashAttention,
+  LlamaKvCacheProfile,
+  LlamaReasoningEffort,
+  LlamaSpeculativeMode,
   LlamaSplitMode,
 } from '../types';
 import { toast } from '../toast';
 import { DirectoryPicker } from './DirectoryPicker';
 import { GenerationRuntimeBadge } from './GenerationRuntimeBadge';
+import { ModelCatalogModal } from './ModelCatalogModal';
 import { NumberCombobox } from './NumberCombobox';
+import { QuickSetupPanel } from './QuickSetupPanel';
 
 const joinDirectories = (directories: readonly string[]): string => directories.join('\n');
 
 // Presets are a convenience only — the field accepts any size the server allows.
-const CONTEXT_SIZE_PRESETS = [4096, 8192, 16_384, 32_768, 65_536, 131_072] as const;
+const CONTEXT_SIZE_PRESETS = [4096, 8192, 16_384, 32_768, 65_536, 131_072, 262_144] as const;
 const CONTEXT_SIZE_LABELS: Record<number, string> = {
   4096: '4k · light',
   8192: '8k · balanced',
   16_384: '16k',
-  32_768: '32k',
-  65_536: '64k · high memory',
-  131_072: '128k · very high memory',
+  32_768: '32k · recommended for 24 GB GPUs',
+  65_536: '64k · long',
+  131_072: '128k · experimental',
+  262_144: '262k · native for Qwen3.8 · experimental',
+};
+// Current llama.cpp CUDA builds have reported severe decode slowdowns past ~64–80K.
+const LONG_CONTEXT_TOKENS = 65_536;
+
+const KV_CACHE_HELP: Record<LlamaKvCacheProfile, string> = {
+  default: 'F16 · llama.cpp default, uses the most KV memory.',
+  quality:
+    'Q8_0 keys and values · near-lossless, about half the KV memory. Turns Flash Attention on.',
+  memory:
+    'Q4_0 keys and values · longest context per GB, small quality cost. Turns Flash Attention on.',
+};
+
+const SPECULATIVE_HELP: Record<LlamaSpeculativeMode, string> = {
+  off: 'No speculative decoding.',
+  auto: "Drafts 2 tokens with the model's own MTP/NextN head when the GGUF has one; otherwise stays off.",
+  aggressive:
+    'Drafts 3 tokens · faster on predictable text, slightly more VRAM. Needs an MTP/NextN head.',
+};
+
+const REASONING_HELP: Record<LlamaReasoningEffort, string> = {
+  default: 'Keeps the chat template default.',
+  off: 'Disables thinking where the chat template supports it.',
+  low: 'Short thinking · fastest answers.',
+  medium: 'Recommended desktop balance of speed and quality.',
+  high: 'Longer thinking.',
+  xhigh: 'Slowest · maximum reasoning, can consume much of the context.',
 };
 
 const ACCELERATION_HELP: Record<LlamaAccelerationMode, string> = {
@@ -48,11 +80,15 @@ export function GenerationSettings() {
   const [tensorSplit, setTensorSplit] = useState('');
   const [threads, setThreads] = useState(-1);
   const [flashAttention, setFlashAttention] = useState<LlamaFlashAttention>('auto');
+  const [kvCache, setKvCache] = useState<LlamaKvCacheProfile>('quality');
+  const [speculative, setSpeculative] = useState<LlamaSpeculativeMode>('auto');
+  const [reasoningEffort, setReasoningEffort] = useState<LlamaReasoningEffort>('medium');
   const [apiKey, setApiKey] = useState('');
   const [enforceZdr, setEnforceZdr] = useState(false);
   const [denyDataCollection, setDenyDataCollection] = useState(false);
   const [persistErrorLogs, setPersistErrorLogs] = useState(true);
   const [models, setModels] = useState<GenerationModel[] | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   const applyData = (next: GenerationConfigResponse) => {
     setData(next);
@@ -68,6 +104,9 @@ export function GenerationSettings() {
     setTensorSplit(next.config.llamaCpp.tensorSplit ?? '');
     setThreads(next.config.llamaCpp.threads);
     setFlashAttention(next.config.llamaCpp.flashAttention);
+    setKvCache(next.config.llamaCpp.kvCache ?? 'quality');
+    setSpeculative(next.config.llamaCpp.speculative ?? 'auto');
+    setReasoningEffort(next.config.llamaCpp.reasoningEffort ?? 'medium');
     setEnforceZdr(next.config.openRouter.enforceZdr);
     setDenyDataCollection(next.config.openRouter.denyDataCollection);
     setPersistErrorLogs(next.config.diagnostics?.persistErrorLogs ?? true);
@@ -113,6 +152,9 @@ export function GenerationSettings() {
           tensorSplit,
           threads,
           flashAttention,
+          kvCache,
+          speculative,
+          reasoningEffort,
         },
         openRouter: {
           apiKey: apiKey || undefined,
@@ -168,6 +210,8 @@ export function GenerationSettings() {
       {error && <div className="banner err">{error}</div>}
 
       <GenerationRuntimeBadge detailed />
+
+      <QuickSetupPanel onCompleted={() => void scanModels()} />
 
       <div className="panel generation-panel">
         <div className="panel-head">
@@ -238,7 +282,11 @@ export function GenerationSettings() {
               />
               <small>
                 {contextSizeValid
-                  ? `${Number(contextSize).toLocaleString()} tokens`
+                  ? `${Number(contextSize).toLocaleString()} tokens${
+                      parsedContextSize > LONG_CONTEXT_TOKENS
+                        ? ' · Experimental: decoding can slow sharply past ~64–80K on current CUDA builds.'
+                        : ''
+                    }`
                   : 'Enter a whole number from 512 to 1,048,576.'}
               </small>
             </label>
@@ -310,6 +358,45 @@ export function GenerationSettings() {
                 <option value="off">Off</option>
               </select>
             </label>
+            <label>
+              <span>KV cache</span>
+              <select
+                value={kvCache}
+                onChange={(event) => setKvCache(event.target.value as LlamaKvCacheProfile)}
+              >
+                <option value="quality">Quality · Q8 (recommended)</option>
+                <option value="memory">Memory saver · Q4</option>
+                <option value="default">Default · F16</option>
+              </select>
+              <small>{KV_CACHE_HELP[kvCache]}</small>
+            </label>
+            <label>
+              <span>Speculative decoding (MTP)</span>
+              <select
+                value={speculative}
+                onChange={(event) => setSpeculative(event.target.value as LlamaSpeculativeMode)}
+              >
+                <option value="auto">Auto · draft 2 (recommended)</option>
+                <option value="aggressive">Aggressive · draft 3</option>
+                <option value="off">Off</option>
+              </select>
+              <small>{SPECULATIVE_HELP[speculative]}</small>
+            </label>
+            <label>
+              <span>Reasoning effort</span>
+              <select
+                value={reasoningEffort}
+                onChange={(event) => setReasoningEffort(event.target.value as LlamaReasoningEffort)}
+              >
+                <option value="medium">Medium (recommended)</option>
+                <option value="low">Low</option>
+                <option value="high">High</option>
+                <option value="xhigh">XHigh · slow</option>
+                <option value="off">Off</option>
+                <option value="default">Template default</option>
+              </select>
+              <small>{REASONING_HELP[reasoningEffort]}</small>
+            </label>
           </div>
           <div className="setup-note">
             Safe discovery: <code>npm run setup:llama</code>. Check latest release:{' '}
@@ -321,6 +408,9 @@ export function GenerationSettings() {
             <code>sycl</code>; Metal is automatic on supported Macs.
           </div>
           <div className="generation-actions">
+            <button className="btn primary" onClick={() => setCatalogOpen(true)}>
+              Download a model…
+            </button>
             <button className="btn" onClick={() => void scanModels()}>
               Scan GGUF models
             </button>
@@ -401,6 +491,11 @@ export function GenerationSettings() {
           </span>
         ))}
       </div>
+      <ModelCatalogModal
+        open={catalogOpen}
+        onClose={() => setCatalogOpen(false)}
+        onDownloaded={() => void scanModels()}
+      />
     </section>
   );
 }

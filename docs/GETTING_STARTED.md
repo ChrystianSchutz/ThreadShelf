@@ -3,9 +3,9 @@
 This guide gets ThreadShelf running locally and indexes your first export folder. It assumes you want a private local search tool, not a hosted service.
 
 The optional llama.cpp/OpenRouter conversation continuation is an
-**Experimental Alpha**. Search remains local; OpenRouter continuation is external
+**Experimental Beta**. Search remains local; OpenRouter continuation is external
 and is selected through the clearly marked **OpenRouter · external** provider.
-See [GENERATION_ALPHA.md](GENERATION_ALPHA.md).
+See [GENERATION_BETA.md](GENERATION_BETA.md).
 
 ## 1. Install
 
@@ -173,7 +173,9 @@ Runtime data is local:
 - `.lancedb/` - vector database.
 - `.uploads/` - uploaded source files.
 - `.collections.json` - remembered manual collections.
-- `.threadshelf/generation.json` - non-secret Experimental Alpha generation settings.
+- `.threadshelf/generation.json` - non-secret Experimental Beta generation settings.
+- `.threadshelf/tools/` - managed `llama.cpp` builds.
+- `.threadshelf/models/` - models downloaded from the catalog (`THREADSHELF_MODELS_PATH`).
 - `.tmp-*` - test temp folders.
 - `test-results/` - Playwright artifacts.
 
@@ -191,6 +193,11 @@ npm run mcp
 npm run setup:llama                  # local discovery only
 npm run setup:llama -- -- --check    # release metadata only; no archive download
 ```
+
+For a first run, **Settings → Conversation generation → Set up local generation**
+installs a `llama.cpp` build and a fitting model from one confirmed plan; the
+commands above remain the scripted and custom-build path. See
+[Experimental Generation](GENERATION_BETA.md).
 
 If Playwright browsers are not installed:
 

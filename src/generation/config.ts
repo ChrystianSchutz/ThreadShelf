@@ -12,6 +12,8 @@ export interface LlamaCppConfig {
   readonly modelDirectories: readonly string[];
   /** Environment and conventional paths added at runtime, but never persisted. */
   readonly defaultModelDirectories: readonly string[];
+  /** Where catalog downloads land. Always searched for models. */
+  readonly downloadDirectory: string;
   readonly contextSize: number;
   readonly acceleration: LlamaAccelerationMode;
   readonly gpuLayers: number;
@@ -20,11 +22,30 @@ export interface LlamaCppConfig {
   readonly tensorSplit?: string;
   readonly threads: number;
   readonly flashAttention: LlamaFlashAttention;
+  readonly kvCache: LlamaKvCacheProfile;
+  readonly speculative: LlamaSpeculativeMode;
+  readonly reasoningEffort: LlamaReasoningEffort;
 }
 
 export type LlamaAccelerationMode = 'auto' | 'cpu' | 'gpu' | 'hybrid' | 'multi-gpu';
 export type LlamaSplitMode = 'layer' | 'row';
 export type LlamaFlashAttention = 'auto' | 'on' | 'off';
+/** default = llama.cpp f16; quality = q8_0 keys+values; memory = q4_0 keys+values. */
+export type LlamaKvCacheProfile = 'default' | 'quality' | 'memory';
+/** MTP/NextN speculative decoding: auto drafts 2 tokens, aggressive drafts 3. */
+export type LlamaSpeculativeMode = 'off' | 'auto' | 'aggressive';
+export type LlamaReasoningEffort = 'default' | 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+
+const KV_CACHE_PROFILES: readonly LlamaKvCacheProfile[] = ['default', 'quality', 'memory'];
+const SPECULATIVE_MODES: readonly LlamaSpeculativeMode[] = ['off', 'auto', 'aggressive'];
+const REASONING_EFFORTS: readonly LlamaReasoningEffort[] = [
+  'default',
+  'off',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+];
 
 export interface OpenRouterConfig {
   readonly baseUrl: string;
@@ -46,6 +67,7 @@ interface StoredGenerationConfig {
     readonly executablePath?: string;
     readonly baseUrl?: string;
     readonly modelDirectories?: readonly string[];
+    readonly downloadDirectory?: string;
     readonly contextSize?: number;
     readonly acceleration?: LlamaAccelerationMode;
     readonly gpuLayers?: number;
@@ -54,6 +76,9 @@ interface StoredGenerationConfig {
     readonly tensorSplit?: string;
     readonly threads?: number;
     readonly flashAttention?: LlamaFlashAttention;
+    readonly kvCache?: LlamaKvCacheProfile;
+    readonly speculative?: LlamaSpeculativeMode;
+    readonly reasoningEffort?: LlamaReasoningEffort;
   };
   readonly openRouter?: {
     readonly enforceZdr?: boolean;
@@ -67,6 +92,7 @@ export interface GenerationConfigUpdate {
     readonly executablePath?: unknown;
     readonly baseUrl?: unknown;
     readonly modelDirectories?: unknown;
+    readonly downloadDirectory?: unknown;
     readonly contextSize?: unknown;
     readonly acceleration?: unknown;
     readonly gpuLayers?: unknown;
@@ -75,6 +101,9 @@ export interface GenerationConfigUpdate {
     readonly tensorSplit?: unknown;
     readonly threads?: unknown;
     readonly flashAttention?: unknown;
+    readonly kvCache?: unknown;
+    readonly speculative?: unknown;
+    readonly reasoningEffort?: unknown;
   };
   readonly openRouter?: {
     readonly apiKey?: unknown;
@@ -116,6 +145,9 @@ export const defaultModelDirectories = (
         ];
   return normalizePaths([...configured, ...defaults]);
 };
+
+export const defaultDownloadDirectory = (env: NodeJS.ProcessEnv = process.env): string =>
+  resolve(env.THREADSHELF_MODELS_PATH || join(process.cwd(), '.threadshelf', 'models'));
 
 const readStoredConfig = async (): Promise<StoredGenerationConfig> => {
   try {
@@ -276,7 +308,11 @@ const parseEnvironmentOverride = <T>(
 };
 
 export const effectiveModelDirectories = (config: LlamaCppConfig): string[] =>
-  normalizePaths([...config.modelDirectories, ...config.defaultModelDirectories]);
+  normalizePaths([
+    config.downloadDirectory,
+    ...config.modelDirectories,
+    ...config.defaultModelDirectories,
+  ]);
 
 export const llamaCppConfigChanged = (
   previous: PublicGenerationConfig,
@@ -298,6 +334,13 @@ export const getGenerationConfig = async (): Promise<PublicGenerationConfig> => 
         ) ?? parseLocalBaseUrl(stored.llamaCpp?.baseUrl, 'baseUrl'),
       modelDirectories: normalizePaths(stored.llamaCpp?.modelDirectories ?? []),
       defaultModelDirectories: defaultModelDirectories(),
+      downloadDirectory:
+        parseEnvironmentOverride('THREADSHELF_MODELS_PATH', (value) =>
+          parsePath(value, 'THREADSHELF_MODELS_PATH'),
+        ) ??
+        (stored.llamaCpp?.downloadDirectory
+          ? resolve(stored.llamaCpp.downloadDirectory)
+          : defaultDownloadDirectory()),
       contextSize:
         parseEnvironmentOverride('LLAMA_CPP_CONTEXT_SIZE', (value) =>
           parseContextSize(Number(value)),
@@ -343,6 +386,24 @@ export const getGenerationConfig = async (): Promise<PublicGenerationConfig> => 
         ) ??
         stored.llamaCpp?.flashAttention ??
         'auto',
+      kvCache:
+        parseEnvironmentOverride('LLAMA_CPP_KV_CACHE', (value) =>
+          parseEnum(value, KV_CACHE_PROFILES, 'LLAMA_CPP_KV_CACHE'),
+        ) ??
+        stored.llamaCpp?.kvCache ??
+        'quality',
+      speculative:
+        parseEnvironmentOverride('LLAMA_CPP_SPECULATIVE', (value) =>
+          parseEnum(value, SPECULATIVE_MODES, 'LLAMA_CPP_SPECULATIVE'),
+        ) ??
+        stored.llamaCpp?.speculative ??
+        'auto',
+      reasoningEffort:
+        parseEnvironmentOverride('LLAMA_CPP_REASONING_EFFORT', (value) =>
+          parseEnum(value, REASONING_EFFORTS, 'LLAMA_CPP_REASONING_EFFORT'),
+        ) ??
+        stored.llamaCpp?.reasoningEffort ??
+        'medium',
     },
     openRouter: {
       baseUrl: (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(
@@ -417,6 +478,10 @@ export const updateGenerationConfig = async (
           : current.llamaCpp?.baseUrl,
       modelDirectories:
         parseDirectories(llamaUpdate?.modelDirectories) ?? current.llamaCpp?.modelDirectories ?? [],
+      downloadDirectory:
+        (llamaUpdate?.downloadDirectory !== undefined
+          ? parsePath(llamaUpdate.downloadDirectory, 'downloadDirectory')
+          : current.llamaCpp?.downloadDirectory) ?? undefined,
       contextSize:
         parseContextSize(llamaUpdate?.contextSize) ?? current.llamaCpp?.contextSize ?? 8192,
       acceleration:
@@ -447,6 +512,18 @@ export const updateGenerationConfig = async (
         parseEnum(llamaUpdate?.flashAttention, ['auto', 'on', 'off'], 'flashAttention') ??
         current.llamaCpp?.flashAttention ??
         'auto',
+      kvCache:
+        parseEnum(llamaUpdate?.kvCache, KV_CACHE_PROFILES, 'kvCache') ??
+        current.llamaCpp?.kvCache ??
+        'quality',
+      speculative:
+        parseEnum(llamaUpdate?.speculative, SPECULATIVE_MODES, 'speculative') ??
+        current.llamaCpp?.speculative ??
+        'auto',
+      reasoningEffort:
+        parseEnum(llamaUpdate?.reasoningEffort, REASONING_EFFORTS, 'reasoningEffort') ??
+        current.llamaCpp?.reasoningEffort ??
+        'medium',
     },
     openRouter: {
       enforceZdr:

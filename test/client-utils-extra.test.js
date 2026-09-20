@@ -46,13 +46,21 @@ describe('fmtRelative', () => {
 describe('fmtDateShort', () => {
   const iso = '2026-02-16T01:05:09.000Z';
 
-  it('drops the seconds that fmtDate carries', () => {
-    const long = fmtDate(iso);
-    const short = fmtDateShort(iso);
-    assert.ok(short.length > 0);
-    assert.ok(long.startsWith(short), `${long} should start with ${short}`);
-    assert.strictEqual(long.split(':').length - 1, 2);
-    assert.strictEqual(short.split(':').length - 1, 1);
+  it('uses the local date format without the seconds fmtDate carries', () => {
+    const date = new Date(iso);
+    const options = {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    };
+    const withoutSeconds = new Intl.DateTimeFormat(undefined, options);
+    const withSeconds = new Intl.DateTimeFormat(undefined, { ...options, second: '2-digit' });
+
+    assert.strictEqual(fmtDateShort(iso), withoutSeconds.format(date));
+    assert.strictEqual(fmtDate(iso), withSeconds.format(date));
+    assert.notStrictEqual(fmtDateShort(iso), fmtDate(iso));
   });
 
   it('returns empty string for missing or invalid input', () => {

@@ -1,14 +1,23 @@
 node_modules/
-.lancedb/
-.lancedb-test/
-.lancedb_bak_test/
-.uploads/
+
+# Runtime state the app writes. These are globs, not exact names: the data root
+# moves with THREADSHELF_PATH / --collection, so `.threadshelf-demo/`,
+# `.lancedb-test/` and friends must be covered without editing this file again.
+.threadshelf*/
+.lancedb*/
+.uploads*/
+.tmp-*/
 .collections.json
-.tmp-test/
-.tmp-e2e/
 test-results/
 playwright-report/
 .playwright-mcp/
+
+# Vector-store and model-cache artifacts, in case one is written outside the
+# directories above. A 130 MB LanceDB tree once reached the index this way.
+*.lance/
+*.txn
+*.manifest
+*.onnx
 .env
 .env.*
 !.env.example
@@ -22,7 +31,6 @@ yarn-error.log*
 .DS_Store
 dist/
 .cache/
-.threadshelf/
 .claude/
 .codex/
 client/node_modules/

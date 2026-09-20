@@ -15,10 +15,28 @@ import type {
   GenerationStreamEvent,
   MasterPromptCollection,
   DirectoryBrowserResponse,
+  CatalogDownloadEvent,
+  CatalogModelResponse,
+  CatalogSearchResponse,
+  CatalogSort,
+  HardwareProfile,
+  QuickSetupEvent,
+  QuickSetupPlan,
   OpenRouterModelSort,
   ThreadShelfChat,
   ThreadShelfChatSummary,
 } from './types';
+
+/** Raised when the server's re-resolved setup plan differs from the approved one. */
+export class QuickSetupPlanChangedError extends Error {
+  constructor(
+    message: string,
+    public readonly plan?: QuickSetupPlan,
+  ) {
+    super(message);
+    this.name = 'QuickSetupPlanChangedError';
+  }
+}
 
 class ApiError extends Error {
   constructor(
@@ -294,6 +312,9 @@ export const api = {
       readonly tensorSplit?: string;
       readonly threads?: number;
       readonly flashAttention?: 'auto' | 'on' | 'off';
+      readonly kvCache?: 'default' | 'quality' | 'memory';
+      readonly speculative?: 'off' | 'auto' | 'aggressive';
+      readonly reasoningEffort?: 'default' | 'off' | 'low' | 'medium' | 'high' | 'xhigh';
     };
     readonly openRouter?: {
       readonly apiKey?: string;
@@ -343,6 +364,88 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model }),
+    });
+  },
+
+  generationHardware(signal?: AbortSignal) {
+    return request<HardwareProfile>('/api/generation/hardware', { signal });
+  },
+
+  catalogSearch(
+    options: { q?: string; sort?: CatalogSort; limit?: number } = {},
+    signal?: AbortSignal,
+  ) {
+    return request<CatalogSearchResponse>(
+      buildUrl('/api/generation/catalog/search', {
+        q: options.q || undefined,
+        sort: options.sort && options.sort !== 'downloads' ? options.sort : undefined,
+        limit: options.limit ? String(options.limit) : undefined,
+      }),
+      { signal },
+    );
+  },
+
+  catalogModel(id: string, signal?: AbortSignal) {
+    return request<CatalogModelResponse>(buildUrl('/api/generation/catalog/model', { id }), {
+      signal,
+    });
+  },
+
+  async catalogDownload(
+    input: { repoId: string; quant?: string; includeProjector?: boolean },
+    onEvent: (event: CatalogDownloadEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const response = await fetch('/api/generation/catalog/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      signal,
+    });
+    await readNdjsonStream<CatalogDownloadEvent>(response, (event) => {
+      onEvent(event);
+      if (event.type === 'error') throw new Error(event.error);
+    });
+  },
+
+  quickSetupPlan(variant?: string, signal?: AbortSignal) {
+    return request<QuickSetupPlan>(buildUrl('/api/generation/setup/plan', { variant }), { signal });
+  },
+
+  async runQuickSetup(
+    input: {
+      variant?: string;
+      model?: string;
+      quant?: string;
+      releaseTag?: string;
+      fingerprint?: string;
+    },
+    onEvent: (event: QuickSetupEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const response = await fetch('/api/generation/setup/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // The server refuses to download anything without this flag; it is the
+      // recorded consent for the exact plan identified by `fingerprint`.
+      body: JSON.stringify({ ...input, confirm: true }),
+      signal,
+    });
+    // A 409 means the resolved plan no longer matches the approved one; the body
+    // carries the replacement so the caller can show it and ask again.
+    if (response.status === 409) {
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        plan?: QuickSetupPlan;
+      };
+      throw new QuickSetupPlanChangedError(
+        payload.error ?? 'The setup plan changed since it was shown.',
+        payload.plan,
+      );
+    }
+    await readNdjsonStream<QuickSetupEvent>(response, (event) => {
+      onEvent(event);
+      if (event.type === 'error') throw new Error(event.error);
     });
   },
 

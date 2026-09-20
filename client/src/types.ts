@@ -164,6 +164,8 @@ export interface IngestProgress {
 }
 
 export interface IngestResultSummary {
+  readonly replacementSkipped?: boolean;
+  readonly skippedFiles?: readonly string[];
   readonly conversations?: number;
   readonly ingested?: number;
   readonly files?: readonly string[];
@@ -172,6 +174,9 @@ export interface IngestResultSummary {
 }
 
 export interface IngestStreamEvent {
+  readonly progressPercent?: number;
+  readonly embeddingDone?: number;
+  readonly embeddingTotal?: number;
   readonly status?: 'starting' | 'progress' | 'completed' | 'error' | string;
   readonly phase?: string;
   readonly totalFiles?: number;
@@ -260,6 +265,7 @@ export interface LlamaRuntimeDiagnostics {
   readonly logsTruncated: boolean;
   readonly devices: readonly LlamaDeviceInfo[];
   readonly deviceDetectionSupported: boolean;
+  readonly profile?: readonly LlamaRuntimeProfileEntry[];
   readonly offload: {
     readonly mode: 'cpu' | 'gpu' | 'hybrid' | 'unknown';
     readonly gpuLayers?: number;
@@ -269,6 +275,125 @@ export interface LlamaRuntimeDiagnostics {
     readonly deviceBufferMiB?: Readonly<Record<string, number>>;
   };
 }
+
+export type CatalogSort = 'downloads' | 'likes' | 'trending' | 'recent';
+export type CatalogGating = false | 'auto' | 'manual';
+export type CatalogFit = 'fits' | 'tight' | 'too-large';
+
+export interface HardwareProfile {
+  readonly devices: readonly LlamaDeviceInfo[];
+  readonly detectionSource: 'llama.cpp' | 'nvidia-smi' | 'none';
+  readonly totalRamBytes: number;
+  readonly freeRamBytes: number;
+  readonly vramBudgetBytes: number;
+  readonly modelBudgetBytes: number;
+  readonly suggestedVariant: 'cpu' | 'cuda' | 'vulkan';
+}
+
+export interface CatalogModelSummary {
+  readonly id: string;
+  readonly author: string;
+  readonly name: string;
+  readonly downloads: number;
+  readonly likes: number;
+  readonly trendingScore?: number;
+  readonly gated: CatalogGating;
+  readonly updatedAt?: string;
+  readonly architecture?: string;
+  readonly contextLength?: number;
+  readonly parameterCount?: number;
+  readonly trustedPublisher: boolean;
+}
+
+export interface CatalogQuant {
+  readonly label: string;
+  readonly totalBytes: number;
+  readonly shards: number;
+  readonly recommended: boolean;
+  readonly fit: CatalogFit;
+  readonly files: readonly { readonly path: string; readonly sizeBytes: number }[];
+}
+
+export interface CatalogModelDetail extends CatalogModelSummary {
+  readonly quants: readonly CatalogQuant[];
+  readonly projectors: readonly { readonly path: string; readonly sizeBytes: number }[];
+  readonly license?: string;
+}
+
+export interface CatalogSearchResponse {
+  readonly models: readonly CatalogModelSummary[];
+  readonly source: string;
+  readonly tokenConfigured: boolean;
+  readonly hardware: HardwareProfile;
+}
+
+export interface CatalogModelResponse {
+  readonly model: CatalogModelDetail;
+  readonly hardware: HardwareProfile;
+  readonly tokenConfigured: boolean;
+}
+
+export type CatalogDownloadEvent =
+  | { readonly type: 'plan'; readonly plan: { readonly totalBytes: number } }
+  | {
+      readonly type: 'progress';
+      readonly phase: 'downloading' | 'verifying' | 'skipped' | 'completed';
+      readonly file?: string;
+      readonly downloadedBytes?: number;
+      readonly totalBytes?: number;
+    }
+  | { readonly type: 'done'; readonly primaryPath: string; readonly directory: string }
+  | { readonly type: 'error'; readonly error: string };
+
+export interface QuickSetupPlan {
+  readonly hardware: HardwareProfile;
+  readonly runtime: {
+    readonly action: 'install' | 'reuse';
+    readonly variant: string;
+    readonly tag: string;
+    readonly url?: string;
+    readonly sha256?: string;
+    readonly sizeBytes?: number;
+    readonly companions: readonly {
+      readonly url: string;
+      readonly sha256: string;
+      readonly sizeBytes?: number;
+    }[];
+    readonly destination: string;
+    readonly executablePath?: string;
+    readonly releaseUrl?: string;
+  };
+  readonly model?: {
+    readonly action: 'download' | 'reuse';
+    readonly repoId: string;
+    readonly quant: string;
+    readonly totalBytes: number;
+    readonly directory: string;
+    readonly files: readonly {
+      readonly url: string;
+      readonly sha256?: string;
+      readonly sizeBytes: number;
+    }[];
+    readonly license?: string;
+    readonly contextLength?: number;
+    readonly fit: CatalogFit;
+  };
+  readonly totalDownloadBytes: number;
+  readonly warnings: readonly string[];
+  readonly fingerprint: string;
+}
+
+export type QuickSetupEvent =
+  | { readonly type: 'plan'; readonly plan: QuickSetupPlan }
+  | {
+      readonly type: 'progress';
+      readonly step: 'runtime' | 'model' | 'done';
+      readonly phase?: string;
+      readonly percent?: number;
+      readonly file?: string;
+    }
+  | { readonly type: 'done'; readonly executablePath: string; readonly modelPath?: string }
+  | { readonly type: 'error'; readonly error: string };
 
 export interface DirectoryBrowserResponse {
   readonly path: string;
@@ -286,6 +411,18 @@ export interface GenerationProviderStatus {
   readonly detail: string;
 }
 
+export type LlamaKvCacheProfile = 'default' | 'quality' | 'memory';
+export type LlamaSpeculativeMode = 'off' | 'auto' | 'aggressive';
+export type LlamaReasoningEffort = 'default' | 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface LlamaRuntimeProfileEntry {
+  readonly setting: string;
+  readonly value: string;
+  readonly source: 'settings' | 'threadshelf' | 'model' | 'runtime';
+  readonly applied: boolean;
+  readonly note?: string;
+}
+
 export interface GenerationConfig {
   readonly experimentalAlpha: true;
   readonly llamaCpp: {
@@ -301,6 +438,9 @@ export interface GenerationConfig {
     readonly tensorSplit?: string;
     readonly threads: number;
     readonly flashAttention: LlamaFlashAttention;
+    readonly kvCache?: LlamaKvCacheProfile;
+    readonly speculative?: LlamaSpeculativeMode;
+    readonly reasoningEffort?: LlamaReasoningEffort;
   };
   readonly openRouter: {
     readonly baseUrl: string;

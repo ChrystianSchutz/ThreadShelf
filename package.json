@@ -1,6 +1,6 @@
 {
   "name": "threadshelf",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Local semantic search, backup, and RAG for your AI chats — ChatGPT, Claude, Google AI Studio, OpenRouter, LM Studio, and Grok — searchable from a web UI, HTTP API, or MCP",
   "license": "MIT",
@@ -10,11 +10,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ChrystianSchutz/viewerHistoriLLM.git"
+    "url": "git+https://github.com/ChrystianSchutz/ThreadShelf.git"
   },
-  "homepage": "https://github.com/ChrystianSchutz/viewerHistoriLLM#readme",
+  "homepage": "https://github.com/ChrystianSchutz/ThreadShelf#readme",
   "bugs": {
-    "url": "https://github.com/ChrystianSchutz/viewerHistoriLLM/issues"
+    "url": "https://github.com/ChrystianSchutz/ThreadShelf/issues"
   },
   "keywords": [
     "semantic-search",
@@ -40,8 +40,8 @@
     }
   },
   "scripts": {
-    "test": "tsx --test test/*.test.js",
-    "test:e2e": "tsx --test test/e2e/*.test.js",
+    "test": "node scripts/run-node-tests.js test",
+    "test:e2e": "node scripts/run-node-tests.js test/e2e",
     "test:playwright": "playwright test",
     "check:repo": "tsx scripts/check-repo-hygiene.ts",
     "check": "npm run check:repo && npm run lint && npx tsc --noEmit && npm test && npm run test:e2e && npm run build:client && npm run test:playwright",
@@ -67,7 +67,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.61.0",
+    "@playwright/test": "^1.62.1",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.1.0",
     "@types/node": "^25.9.1",
@@ -79,6 +79,6 @@
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1",
-    "vite": "^8.0.16"
+    "vite": "^8.2.0"
   }
 }

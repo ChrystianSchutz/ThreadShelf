@@ -5,6 +5,7 @@ import { loadThread } from '../src/services/thread.js';
 import { getAllCollections } from '../src/services/collections.js';
 import { getStatsForCollection } from '../src/services/stats.js';
 import { listSourceFilesInCollection } from '../src/store.js';
+import { recoverPendingIndexes, startIndexRecovery } from '../src/store.js';
 import {
   ValidationError,
   normalizeCollectionSelector,
@@ -219,6 +220,8 @@ const toolSearch = async (args: Record<string, unknown> = {}): Promise<unknown> 
   const { from, to } = normalizeDateRange(args.from, args.to);
   const mode = normalizeSearchMode(args.mode);
 
+  // Bounded catch-up; failed jobs keep their backoff and never re-embed per query.
+  await recoverPendingIndexes({ collection });
   const results = await searchAcrossCollections(query, collection, {
     n,
     roles: roles ?? undefined,
@@ -458,5 +461,7 @@ const isEntrypoint = (() => {
 })();
 
 if (isEntrypoint) {
+  const stopRecovery = startIndexRecovery();
+  process.stdin.once('end', stopRecovery);
   runServer();
 }
