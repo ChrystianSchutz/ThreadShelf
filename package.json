@@ -1,7 +1,6 @@
 {
   "name": "threadshelf",
-  "version": "1.2.0",
-  "private": true,
+  "version": "1.2.3",
   "description": "Local semantic search, backup, and RAG for your AI chats — ChatGPT, Claude, Google AI Studio, OpenRouter, LM Studio, and Grok — searchable from a web UI, HTTP API, or MCP",
   "license": "MIT",
   "type": "module",
@@ -28,6 +27,21 @@
     "lancedb",
     "mcp"
   ],
+  "bin": {
+    "threadshelf": "./bin/threadshelf.js",
+    "threadshelf-mcp": "./bin/threadshelf-mcp.js"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "public/",
+    "scripts/openrouter-export-all.js",
+    "scripts/openrouter-export-browser.js",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
   "workspaces": [
     "client"
   ],
@@ -52,12 +66,17 @@
     "start": "tsx src/server.ts",
     "dev": "tsx --watch src/server.ts",
     "dev:client": "npm run dev --workspace client",
-    "build": "npm run build:client",
+    "build": "npm run build:client && npm run build:server",
     "build:client": "npm run build --workspace client",
     "docs:screenshots": "tsx scripts/capture-docs-screenshots.ts",
     "mcp": "tsx mcp/server.ts",
     "lint": "eslint src/ mcp/ client/src/",
-    "format": "prettier --write \"src/**/*.ts\" \"client/src/**/*.{ts,tsx}\""
+    "format": "prettier --write \"src/**/*.ts\" \"client/src/**/*.{ts,tsx}\"",
+    "build:server": "tsc -p tsconfig.build.json",
+    "build:package": "npm run clean:dist && npm run build:client && npm run build:server",
+    "clean:dist": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
+    "prepack": "npm run build:package",
+    "pack:verify": "node scripts/verify-package.js"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

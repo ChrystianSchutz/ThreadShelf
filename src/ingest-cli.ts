@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import { basename, resolve } from 'path';
 import { ingestFolder } from './ingest.js';
+import { invocation } from './paths.js';
 import { watchFolder } from './watch.js';
 import { normalizeCollectionName } from './validation.js';
 import { recoverPendingIndexes, startIndexRecovery } from './store.js';
@@ -38,7 +39,7 @@ const collectionArg = positional[1] ?? 'chunks';
 
 if (!folder || positional.length > 2) {
   console.error(
-    'Usage: npm run ingest -- <folder> [collection] -- [--clear] [--watch] [--debounce <ms>]',
+    `Usage: ${invocation('ingest')} <folder> [collection] -- [--clear] [--watch] [--debounce <ms>]`,
   );
   process.exit(1);
 }

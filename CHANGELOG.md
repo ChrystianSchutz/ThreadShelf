@@ -2,6 +2,85 @@
 
 All notable changes to ThreadShelf are documented here.
 
+## 1.2.3 — 2026-09-20
+
+### Fixed
+
+- Stop `test/packaging.test.js` asserting that `dist/` is built. `npm test`
+  runs before `build:client` in `npm run check`, and a fresh clone has no
+  `dist/` at all, so the check failed on CI and on any machine that had not
+  already built. The emitted-file assertions moved into the suite that skips
+  when `dist/` is absent, and the `process.cwd()` guard is now scoped by
+  extension per tree (`.ts` under `src/` and `mcp/`, `.js` under `bin/`) so
+  stale build output cannot fail it.
+
+The published package is unchanged from 1.2.2: both fixes are to test files,
+which the `files` allow-list does not ship.
+
+## 1.2.2 — 2026-09-20
+
+### Packaging review follow-ups
+
+- Resolve the package root by looking for the manifest rather than for a
+  directory named `dist`, so a repository cloned into a directory called `dist`
+  no longer anchors every path one level too high. `dist/` must stay free of a
+  stray `package.json` for this, which `test/packaging.test.js` now asserts.
+- Detect a checkout by the presence of `src/` rather than of `src/server.ts`,
+  so renaming or splitting an entry point cannot silently move a developer's
+  archive out of the repository.
+- Add `npx threadshelf mcp` next to the existing `threadshelf-mcp` executable.
+  It starts the server explicitly instead of relying on the MCP module's own
+  entry-point detection, which compares URLs in a way that is fragile on
+  Windows.
+- Widen the `process.cwd()` guard in `test/packaging.test.js` to cover `bin/`
+  (the npx entry point) and `src/paths.ts`. It previously scanned only `.ts`
+  files and exempted `paths.ts` outright, so it would have passed while the two
+  files most able to break every path did the wrong thing.
+- Exercise the compiled `dist/src/paths.js` from `npm test`, and the `mcp`
+  subcommand from `npm run pack:verify`. Both were previously covered only by
+  the five-minute packaging run, or not at all.
+
+## 1.2.1 — 2026-09-20
+
+### Install with `npx threadshelf`
+
+- Publish ThreadShelf to npm as the unscoped `threadshelf` package, with the
+  prebuilt web UI included. `npx threadshelf` downloads, starts and serves on
+  <http://localhost:3000> with no clone and no build step.
+- Add the `threadshelf` and `threadshelf-mcp` executables. Both are plain
+  JavaScript and run the compiled server in `dist/`, so the published package
+  needs neither `tsx` nor `typescript` at runtime.
+- Compile the server and MCP server to distributable JavaScript
+  (`tsconfig.build.json`), wired into `prepack` so a published tarball can never
+  contain a stale build. `files` is an allow-list: no sources, tests, docs
+  screenshots, `.env` or user data are published.
+- Separate application files from persistent data. Package assets now resolve
+  against the installed module instead of `process.cwd()`, which was wrong for
+  any `npx` run, and persistent data moves out of the disposable install
+  directory into a per-user location: `%LOCALAPPDATA%\ThreadShelf` on Windows,
+  `~/.threadshelf` on macOS and Linux. Clearing the npm cache or upgrading no
+  longer risks the archive.
+- Cache the downloaded embedding model with the user's data rather than inside
+  `node_modules`, so an `npx` upgrade does not re-download it.
+- Add `THREADSHELF_DATA_DIR` / `--data-dir` to relocate everything, and
+  `--where` to print the resolved package and data directories. The existing
+  narrower overrides (`LANCEDB_PATH`, `UPLOADS_DIR`, `COLLECTIONS_PATH`,
+  `MASTER_PROMPTS_PATH`, …) continue to take precedence.
+- A repository checkout keeps the previous repo-local layout, so development and
+  the existing test harness are unchanged.
+- Add `npm run pack:verify`: packs the tarball, installs it into a temporary
+  directory, boots the CLI from an unrelated working directory and asserts that
+  the UI is served, data lands in the data directory, and nothing is written
+  into the package or the working directory.
+- Add `.github/workflows/publish.yml`: tag-driven release on `v*` that runs the
+  test suite and publishes through npm Trusted Publishing (OIDC), with no npm
+  token stored in the repository.
+- Reach the bundled CLIs from an installed package:
+  `npx threadshelf search|ingest|parse`. They were compiled into the tarball but
+  had no entry point, so only a clone could run them. Their usage messages now
+  name the invocation that applies — `npm run search --` from a checkout,
+  `npx threadshelf search` from an install.
+
 ## 1.2.0 — 2026-09-13
 
 ### Archive durability

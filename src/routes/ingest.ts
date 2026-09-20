@@ -4,6 +4,7 @@ import { join, basename, dirname, normalize, resolve, relative, isAbsolute } fro
 import { existsSync, mkdirSync } from 'fs';
 import { copyFile, mkdir, rm } from 'fs/promises';
 import { randomUUID } from 'crypto';
+import { dataPath } from '../paths.js';
 import { ingestFolder, listExportFiles } from '../ingest.js';
 import { listSourceFilesInCollection } from '../store.js';
 import {
@@ -17,7 +18,7 @@ import { abortOnDisconnect, isAbortError } from './stream-abort.js';
 
 const router = Router();
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR || join(process.cwd(), '.uploads');
+const UPLOADS_DIR = process.env.UPLOADS_DIR || dataPath('uploads');
 const INCOMING_DIR = join(UPLOADS_DIR, '.incoming');
 const MAX_UPLOAD_SIZE = 500 * 1024 * 1024; // 500 MB
 const MAX_UPLOAD_FILES = 1000;

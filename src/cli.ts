@@ -1,9 +1,10 @@
 #!/usr/bin/env tsx
 import { parseFile } from './parser.js';
+import { invocation } from './paths.js';
 
 const file = process.argv[2];
 if (!file) {
-  console.error('Usage: npm run parse -- <file> -- [--no-user] [--no-thinking] [--no-ai]');
+  console.error(`Usage: ${invocation('parse')} <file> -- [--no-user] [--no-thinking] [--no-ai]`);
   process.exit(1);
 }
 

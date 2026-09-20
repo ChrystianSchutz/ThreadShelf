@@ -1,0 +1,85 @@
+name: Publish to npm
+
+# Tag-driven release: `npm version patch && git push --follow-tags` is the whole
+# release ritual. The tag is the trigger, and nothing is published unless the
+# full check suite passes first.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and pack only, do not publish'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Test, pack and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for npm Trusted Publishing (OIDC). No NPM_TOKEN secret is
+      # stored anywhere: npm mints a short-lived credential for this workflow
+      # in this repository only.
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          # Trusted Publishing needs npm >= 11.5.1, which ships with Node 24.
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache embedding model
+        uses: actions/cache@v6
+        with:
+          path: .threadshelf/model-cache
+          key: hf-transformers-paraphrase-multilingual-minilm-l12-v2
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test
+
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      - name: Build package (client + server)
+        run: npm run build:package
+
+      - name: Verify the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $version" >&2
+            exit 1
+          fi
+
+      - name: Inspect package contents
+        run: npm pack --dry-run
+
+      - name: Verify the packed tarball installs and runs
+        run: node scripts/verify-package.js
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
+        run: npm publish

@@ -2,16 +2,19 @@ import './env.js';
 import express from 'express';
 import { join } from 'path';
 import apiRouter from './routes/index.js';
+import { dataDir, packagePath } from './paths.js';
 import { startIndexRecovery } from './store.js';
 
 const app = express();
 app.use(express.json({ limit: '512kb' }));
 
-const PUBLIC = join(process.cwd(), 'public');
+// Package assets resolve against the installed module, never process.cwd():
+// `npx threadshelf` runs from whatever directory the user happens to be in.
+const PUBLIC = packagePath('public');
 app.use(express.static(PUBLIC));
 // Serve the browser-console export scripts so the UI can offer a "copy script"
 // button (e.g. the OpenRouter exporter). Read-only static files.
-app.use('/scripts', express.static(join(process.cwd(), 'scripts')));
+app.use('/scripts', express.static(packagePath('scripts')));
 
 const normalizeRequestHost = (value: string | undefined): string => {
   const host = String(value || '')
@@ -84,5 +87,5 @@ const HOST = process.env.HOST || '127.0.0.1';
 app.listen(PORT, HOST, () => {
   startIndexRecovery();
   console.log(`Server: http://localhost:${PORT}`);
-  console.log('LanceDB at', process.env.LANCEDB_PATH || '.lancedb');
+  console.log('Data directory:', dataDir());
 });

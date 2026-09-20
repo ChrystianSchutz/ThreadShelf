@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile, stat, writeFile } from 'fs/promises';
-import { basename, dirname, join, resolve } from 'path';
+import { basename, dirname, resolve } from 'path';
+import { dataPath } from '../paths.js';
 import { getGenerationConfig } from './config.js';
 import type { ChatRequest } from './types.js';
 
@@ -9,8 +10,7 @@ let pendingWrite: Promise<void> = Promise.resolve();
 
 export const generationErrorLogPath = (): string =>
   resolve(
-    process.env.GENERATION_ERROR_LOG_PATH ||
-      join(process.cwd(), '.threadshelf', 'generation-errors.log'),
+    process.env.GENERATION_ERROR_LOG_PATH || dataPath('generationErrorLog'),
   );
 
 const appendError = async (request: ChatRequest, error: unknown): Promise<void> => {

@@ -1,6 +1,5 @@
 import { connect, type Connection, type Table } from '@lancedb/lancedb';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { dataPath } from './paths.js';
 import { embed, embedOne } from './embedding.js';
 import { chunkTurns, isIndexableText } from './chunking.js';
 import { validateTurns } from './validation.js';
@@ -8,8 +7,7 @@ import type { Provider } from './parser.js';
 import { createHash } from 'node:crypto';
 import { portableModelLabel } from './model-label.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = process.env.LANCEDB_PATH || join(__dirname, '..', '.lancedb');
+const DB_PATH = process.env.LANCEDB_PATH || dataPath('lancedb');
 const EMBED_BATCH_SIZE = Math.max(1, Number(process.env.EMBED_BATCH_SIZE) || 25);
 
 let db: Connection | null = null;

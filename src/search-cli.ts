@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { invocation } from './paths.js';
 import { searchAcrossCollections } from './services/search.js';
 import { recoverPendingIndexes } from './store.js';
 import {
@@ -11,7 +12,7 @@ import {
   normalizeSearchMode,
 } from './validation.js';
 
-const USAGE = `Usage: npm run search -- "<query>" -- [options]
+const USAGE = `Usage: ${invocation('search')} "<query>" -- [options]
 
 Options:
   --collection <name>   Collection to search, or "all" (default: all)

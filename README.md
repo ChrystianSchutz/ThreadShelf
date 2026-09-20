@@ -283,10 +283,49 @@ format is undocumented and may change._
 Requires **Node.js 20.19+** and npm.
 
 ```bash
+npx threadshelf        # downloads, starts, opens on http://localhost:3000
+```
+
+That is the whole install. The package ships the prebuilt web UI, so there is
+nothing to compile and no repository to clone. Pick another port with
+`npx threadshelf 3001`, and see `npx threadshelf --help` for the rest.
+
+The terminal tools come with it:
+
+```bash
+npx threadshelf search "what did I decide about caching?"
+npx threadshelf ingest ./my-exports my-collection
+npx threadshelf parse ./chatgpt-export.json
+npx threadshelf-mcp                      # stdio MCP server
+```
+
+Your archive is **never** stored inside the npm package: an `npx` install
+directory is disposable and npm may wipe it at any time. Persistent data lives
+in a per-user directory instead, so upgrading or clearing the npm cache leaves
+your index untouched.
+
+| Platform      | Default data directory                       |
+| ------------- | -------------------------------------------- |
+| Windows       | `%LOCALAPPDATA%\ThreadShelf`                 |
+| macOS / Linux | `~/.threadshelf`                             |
+
+Override it with `--data-dir <path>` or `THREADSHELF_DATA_DIR`, and print the
+resolved locations with `npx threadshelf --where`. The narrower overrides
+(`LANCEDB_PATH`, `UPLOADS_DIR`, …) still win over the defaults.
+
+### Run from a clone instead
+
+Developing on ThreadShelf, or just prefer the source?
+
+```bash
 npm install            # installs server + client (npm workspaces)
 npm run build:client   # builds the React UI into public/
 npm start              # serves on http://localhost:3000
 ```
+
+A repository checkout keeps its data in the repo (`.lancedb/`, `.threadshelf/`,
+`.collections.json`) exactly as before, so a clone and an `npx` install never
+fight over the same files.
 
 ### Use ThreadShelf from an MCP client
 
@@ -546,10 +585,25 @@ ThreadShelf exposes your local index to MCP clients (e.g. Claude Desktop, or any
 MCP-capable agent) over stdio — so a model can search your past chats as a tool.
 
 ```bash
-npm run mcp   # starts the stdio MCP server
+npx threadshelf mcp   # installed package (npx threadshelf-mcp is equivalent)
+npm run mcp           # from a clone
 ```
 
-Example Claude Desktop config (`claude_desktop_config.json`):
+Example Claude Desktop config (`claude_desktop_config.json`) using the published
+package:
+
+```json
+{
+  "mcpServers": {
+    "threadshelf": {
+      "command": "npx",
+      "args": ["-y", "threadshelf-mcp"]
+    }
+  }
+}
+```
+
+From a clone instead:
 
 ```json
 {
@@ -630,6 +684,8 @@ CI runs the full gate on Linux and lightweight core checks on Windows.
 | `npm run ingest -- <folder> [collection] -- [flags]` | Ingest a folder (`--clear`, `--watch`, `--debounce <ms>`).                          |
 | `npm run search -- "<query>" -- [flags]`             | Search from the CLI (`--mode keyword`, `--collection`, `--roles`, `--n`, `--json`). |
 | `npm run setup:llama`                                | Discover local `llama-server`; add `-- -- --check` or explicit install flags.       |
+| `npm run build:package`                              | Build the publishable package (client UI + compiled server into `dist/`).           |
+| `npm run pack:verify`                                | Pack the tarball, install it in a temp dir, and boot it (`npx` smoke test).          |
 
 Missing Playwright browsers? `npx playwright install chromium`.
 
@@ -640,14 +696,15 @@ Missing Playwright browsers? `npx playwright install chromium`.
 | `PORT`                                    | `3000`                             | Server port.                                                          |
 | `HOST`                                    | `127.0.0.1`                        | Server host. Set explicitly only when trusted LAN access is required. |
 | `ALLOWED_HOSTS`                           | _(empty)_                          | Comma-separated extra Host/Origin names for trusted LAN access.       |
-| `LANCEDB_PATH`                            | `.lancedb`                         | LanceDB directory.                                                    |
-| `UPLOADS_DIR`                             | `.uploads`                         | Uploaded source files.                                                |
-| `COLLECTIONS_PATH`                        | `.collections.json`                | Manual-collections registry file.                                     |
+| `THREADSHELF_DATA_DIR`                    | _(see Quick Start)_                | Root for all persistent data. Overrides the per-user default.         |
+| `LANCEDB_PATH`                            | _(data dir)_                       | LanceDB directory.                                                    |
+| `UPLOADS_DIR`                             | _(data dir)_                       | Uploaded source files.                                                |
+| `COLLECTIONS_PATH`                        | _(data dir)_                       | Manual-collections registry file.                                     |
 | `CHUNK_MAX_CHARS`                         | `2000`                             | Max characters per embedded chunk.                                    |
 | `CHUNK_OVERLAP_CHARS`                     | `100`                              | Overlap between long chunks.                                          |
 | `EMBED_BATCH_SIZE`                        | `25`                               | Embedding batch size during ingest.                                   |
-| `GENERATION_CONFIG_PATH`                  | `.threadshelf/generation.json`     | Non-secret Experimental Beta generation settings.                     |
-| `MASTER_PROMPTS_PATH`                     | `.threadshelf/master-prompts.json` | Saved master (system) prompts.                                        |
+| `GENERATION_CONFIG_PATH`                  | _(data dir)_                       | Non-secret Experimental Beta generation settings.                     |
+| `MASTER_PROMPTS_PATH`                     | _(data dir)_                       | Saved master (system) prompts.                                        |
 | `LLAMA_CPP_SERVER`                        | _(auto)_                           | Absolute path to an existing `llama-server` executable.               |
 | `LLAMA_CPP_BASE_URL`                      | _(empty)_                          | Existing loopback-only llama.cpp server URL.                          |
 | `LLAMA_CPP_CONTEXT_SIZE`                  | `8192`                             | Managed local server context size.                                    |
@@ -659,8 +716,9 @@ Missing Playwright browsers? `npx playwright install chromium`.
 | `LLAMA_CPP_THREADS`                       | `-1`                               | CPU generation threads; `-1` lets llama.cpp choose.                   |
 | `LLAMA_CPP_FLASH_ATTENTION`               | `auto`                             | Flash Attention: `auto`, `on`, or `off`.                              |
 | `LLAMA_MODEL_PATHS`                       | _(defaults)_                       | Extra model roots (`;` on Windows, `:` on macOS/Linux).               |
-| `THREADSHELF_TOOLS_PATH`                  | `.threadshelf/tools`               | llama.cpp discovery/installer root.                                   |
-| `THREADSHELF_MODELS_PATH`                 | `.threadshelf/models`              | Catalog download root; always searched for models.                    |
+| `THREADSHELF_TOOLS_PATH`                  | _(data dir)_                       | llama.cpp discovery/installer root.                                   |
+| `THREADSHELF_MODELS_PATH`                 | _(data dir)_                       | Catalog download root; always searched for models.                    |
+| `THREADSHELF_MODEL_CACHE`                 | _(data dir)_                       | Cache for the downloaded embedding model.                             |
 | `THREADSHELF_DISABLE_DEFAULT_MODEL_PATHS` | `0`                                | Set `1` to scan only explicitly configured roots.                     |
 | `HF_TOKEN`                                | _(empty)_                          | Hugging Face token; required only for gated repositories.             |
 | `HUGGING_FACE_HUB_TOKEN`                  | _(empty)_                          | Alternative name for `HF_TOKEN`.                                      |
@@ -668,6 +726,9 @@ Missing Playwright browsers? `npx playwright install chromium`.
 | `GH_TOKEN`                                | _(empty)_                          | Alternative name for `GITHUB_TOKEN`.                                  |
 | `OPENROUTER_API_KEY`                      | _(empty)_                          | OpenRouter key; may be set in `.env`, never exposed to the browser.   |
 | `OPENROUTER_BASE_URL`                     | `https://openrouter.ai/api/v1`     | Override primarily intended for testing.                              |
+
+Paths given as _(data dir)_ default to a location inside the data directory
+described in [Quick Start](#quick-start); setting one explicitly still wins.
 
 For LAN access, bind to the interface you need and allow the exact browser host,
 for example `HOST=0.0.0.0 ALLOWED_HOSTS=192.168.1.50,my-pc.local`. Without
