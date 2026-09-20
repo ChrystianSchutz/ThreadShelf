@@ -22,15 +22,19 @@ function makeClient(child) {
   const rl = createInterface({ input: child.stdout });
   const queue = [];
   const waiters = [];
+  // stdout is the JSON-RPC channel: any other output corrupts client framing.
+  const noise = [];
   rl.on('line', (line) => {
     if (!line.trim()) return;
+    let msg;
     try {
-      const msg = JSON.parse(line);
-      if (waiters.length) waiters.shift()(msg);
-      else queue.push(msg);
-    } catch (e) {
-      // Ignore non-JSON noise (eg. accidental console.log in dev).
+      msg = JSON.parse(line);
+    } catch {
+      noise.push(line);
+      return;
     }
+    if (waiters.length) waiters.shift()(msg);
+    else queue.push(msg);
   });
 
   let nextId = 1;
@@ -66,7 +70,7 @@ function makeClient(child) {
     child.stdin.write(`${payload}\n`);
   }
 
-  return { send, notify };
+  return { send, notify, noise };
 }
 
 describe('MCP stdio E2E', () => {
@@ -132,6 +136,7 @@ describe('MCP stdio E2E', () => {
         const resources = await client.send('resources/list', {});
         assert.ok(Array.isArray(resources.result.resourceTemplates));
         assert.ok(resources.result.resourceTemplates.length >= 3);
+        assert.deepStrictEqual(client.noise, [], 'MCP stdout must contain only JSON-RPC frames');
       } catch (e) {
         e.message += `\nMCP stderr:\n${stderr.join('')}`;
         throw e;

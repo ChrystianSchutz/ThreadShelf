@@ -2,7 +2,10 @@ import { connect, type Connection, type Table } from '@lancedb/lancedb';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { embed, embedOne } from './embedding.js';
-import { isIndexableText } from './chunking.js';
+import { chunkTurns, isIndexableText } from './chunking.js';
+import { validateTurns } from './validation.js';
+import type { Provider } from './parser.js';
+import { createHash } from 'node:crypto';
 import { portableModelLabel } from './model-label.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -25,7 +28,9 @@ const invalidateCollectionStats = (collection: string): void => {
 const getDb = async (): Promise<Connection> => {
   if (!db) {
     try {
-      db = await connect(DB_PATH);
+      // Server, MCP and CLI share one database. Cached table handles must see
+      // each other's commits (pending index jobs, retry times, deletions).
+      db = await connect(DB_PATH, { readConsistencyInterval: 0 });
     } catch (e) {
       const err = new Error((e as Error)?.message || 'LanceDB connect failed');
       err.cause = e;
@@ -67,6 +72,11 @@ export interface ChunkRow {
 
 interface ChunkWriteOptions {
   readonly signal?: AbortSignal;
+  readonly onEmbeddingProgress?: (
+    done: number,
+    total: number,
+    tokens: number,
+  ) => void | Promise<void>;
 }
 
 interface EmbeddedChunkRow extends Record<string, unknown> {
@@ -85,19 +95,6 @@ interface EmbeddedChunkRow extends Record<string, unknown> {
   readonly generationProvider: string;
 }
 
-export const addChunks = async (
-  collection: string,
-  chunks: ChunkRow[],
-  options: ChunkWriteOptions = {},
-): Promise<void> => {
-  if (chunks.length === 0) return;
-  const rows = await embedChunks(chunks, options.signal);
-  return withCollectionWriteLock(collection, async () => {
-    await addEmbeddedRowsLocked(collection, rows);
-    invalidateCollectionStats(collection);
-  });
-};
-
 const ensureChunkMetadataSchema = async (tbl: Table): Promise<void> => {
   const schema = await tbl.schema();
   const existing = new Set(schema.fields.map((field) => field.name));
@@ -110,58 +107,37 @@ const ensureChunkMetadataSchema = async (tbl: Table): Promise<void> => {
   if (missing.length) await tbl.addColumns(missing);
 };
 
-// Delete + re-add under a single lock so two concurrent ingests of the same
-// file cannot interleave into duplicated chunks.
-export const replaceChunksForFile = async (
+// A merge is one LanceDB commit: an insertion failure cannot expose a delete.
+const replaceEmbeddedRowsLocked = async (
   collection: string,
-  sourceFile: string,
-  chunks: ChunkRow[],
-  options: ChunkWriteOptions = {},
+  where: string,
+  rows: EmbeddedChunkRow[],
 ): Promise<void> => {
-  // Embed before deleting the previous rows. Cancellation can therefore never
-  // turn a healthy indexed file into a partially replaced one.
-  const rows = await embedChunks(chunks, options.signal);
-  options.signal?.throwIfAborted();
-  return withCollectionWriteLock(collection, async () => {
-    const tbl = await openTable(collection);
-    if (tbl) {
-      await tbl.delete(`sourceFile = '${escapeSqlString(sourceFile)}'`);
-    }
-    await addEmbeddedRowsLocked(collection, rows);
-    invalidateCollectionStats(collection);
-  });
-};
-
-// Re-index only the turns authored/generated inside ThreadShelf. Imported
-// archive chunks stay untouched, while retries remain idempotent.
-export const replaceThreadShelfChunksForConversation = async (
-  collection: string,
-  sourceFile: string,
-  conversationKey: string,
-  chunks: ChunkRow[],
-): Promise<void> => {
-  const rows = await embedChunks(chunks);
-  return withCollectionWriteLock(collection, async () => {
-    const tbl = await openTable(collection);
-    if (tbl) {
-      await ensureChunkMetadataSchema(tbl);
-      await tbl.delete(
-        [
-          `sourceFile = '${escapeSqlString(sourceFile)}'`,
-          `conversationKey = '${escapeSqlString(conversationKey)}'`,
-          'createdInThreadShelf = true',
-        ].join(' AND '),
-      );
-    }
-    await addEmbeddedRowsLocked(collection, rows);
-    invalidateCollectionStats(collection);
-  });
+  const tbl = await openTable(collection);
+  if (tbl) {
+    await ensureChunkMetadataSchema(tbl);
+    if (!rows.length) await tbl.delete(where);
+    else
+      await tbl
+        .mergeInsert('id')
+        .whenMatchedUpdateAll()
+        .whenNotMatchedInsertAll()
+        .whenNotMatchedBySourceDelete({ where })
+        .execute(rows);
+  } else if (rows.length) {
+    const created = await (await getDb()).createTable(collection, rows, { mode: 'create' });
+    tableCache.set(collection, created);
+  }
+  invalidateCollectionStats(collection);
 };
 
 const embedChunks = async (
   chunks: ChunkRow[],
   signal?: AbortSignal,
+  onProgress?: ChunkWriteOptions['onEmbeddingProgress'],
 ): Promise<EmbeddedChunkRow[]> => {
+  const tokens = chunks.reduce((sum, chunk) => sum + Math.ceil(chunk.text.length / 4), 0);
+  await onProgress?.(0, chunks.length, tokens);
   if (chunks.length === 0) return [];
   const rows: EmbeddedChunkRow[] = [];
 
@@ -188,28 +164,9 @@ const embedChunks = async (
         generationProvider: ch.generationProvider ?? '',
       })),
     );
+    await onProgress?.(rows.length, chunks.length, tokens);
   }
   return rows;
-};
-
-const addEmbeddedRowsLocked = async (
-  collection: string,
-  rows: EmbeddedChunkRow[],
-): Promise<void> => {
-  if (rows.length === 0) return;
-  const database = await getDb();
-
-  for (let i = 0; i < rows.length; i += EMBED_BATCH_SIZE) {
-    const batch = rows.slice(i, i + EMBED_BATCH_SIZE);
-    const tbl = await openTable(collection);
-    if (tbl) {
-      await ensureChunkMetadataSchema(tbl);
-      await tbl.add(batch);
-    } else {
-      const created = await database.createTable(collection, batch, { mode: 'create' });
-      tableCache.set(collection, created);
-    }
-  }
 };
 
 // --- Stored threads ---
@@ -245,6 +202,7 @@ export interface StoredThreadRow {
   readonly createdInThreadShelf: boolean;
   readonly threadCreatedAt: string;
   readonly hasThreadShelfTurns: boolean;
+  readonly indexPending: string;
 }
 
 export interface ThreadSummaryRow {
@@ -283,6 +241,7 @@ const storedThreadRow = (row: Record<string, unknown>): StoredThreadRow => ({
   createdInThreadShelf: Boolean(row.createdInThreadShelf),
   threadCreatedAt: (row.threadCreatedAt as string) ?? '',
   hasThreadShelfTurns: Boolean(row.hasThreadShelfTurns || row.createdInThreadShelf),
+  indexPending: String(row.indexPending || ''),
 });
 
 // Latest turn timestamp in a conversation — powers "sort by recent" in the
@@ -329,6 +288,10 @@ const migrateThreadsSchema = async (tbl: Table): Promise<void> => {
     { name: 'threadCreatedAt', valueSql: "''" },
     { name: 'hasThreadShelfTurns', valueSql: 'false' },
     { name: 'lastModel', valueSql: "''" },
+    { name: 'indexPending', valueSql: "''" },
+    { name: 'indexAttempts', valueSql: '0.0' },
+    { name: 'indexRetryAt', valueSql: '0.0' },
+    { name: 'indexError', valueSql: "''" },
   ].filter((column) => !schema.fields.some((field) => field.name === column.name));
   if (metadataColumns.length) {
     try {
@@ -361,42 +324,86 @@ export const replaceThreadsForFile = async (
   conversations: readonly ThreadConversationInput[],
 ): Promise<void> => {
   return withCollectionWriteLock(THREADS_TABLE, async () => {
-    const ingestedAt = new Date().toISOString();
-    const rows = conversations.map((conversation, ordinal) => ({
-      collection,
-      sourceFile,
-      conversationKey: conversation.key ?? '',
-      title: conversation.title ?? '',
-      provider,
-      ordinal,
-      turnCount: conversation.turns.length,
-      turnsJson: JSON.stringify(conversation.turns),
-      ingestedAt,
-      lastTurnAt: latestTurnTimestamp(conversation.turns),
-      lastModel: latestTurnModel(conversation.turns),
-      createdInThreadShelf: conversation.createdInThreadShelf ?? false,
-      threadCreatedAt: conversation.threadCreatedAt ?? '',
-      hasThreadShelfTurns:
-        conversation.createdInThreadShelf === true ||
-        conversation.turns.some(
-          (turn) => (turn as { createdInThreadShelf?: unknown })?.createdInThreadShelf === true,
-        ),
-    }));
-
-    const tbl = await openTable(THREADS_TABLE);
-    if (tbl) {
-      await ensureThreadsSchema(tbl);
-      await tbl.delete(
-        `collection = '${escapeSqlString(collection)}' AND sourceFile = '${escapeSqlString(sourceFile)}'`,
-      );
-      if (rows.length) await tbl.add(rows);
-    } else if (rows.length) {
-      const database = await getDb();
-      const created = await database.createTable(THREADS_TABLE, rows, { mode: 'create' });
-      tableCache.set(THREADS_TABLE, created);
-    }
+    const rows = threadRows(collection, sourceFile, provider, conversations, 'local');
+    await replaceThreadRowsLocked(threadFileFilter(collection, sourceFile), rows);
     invalidateCollectionStats(collection);
   });
+};
+
+const threadFileFilter = (collection: string, sourceFile: string): string =>
+  `collection = '${escapeSqlString(collection)}' AND sourceFile = '${escapeSqlString(sourceFile)}'`;
+
+const threadRows = (
+  collection: string,
+  sourceFile: string,
+  provider: string,
+  conversations: readonly ThreadConversationInput[],
+  indexPending: string,
+): Record<string, unknown>[] => {
+  const ingestedAt = new Date().toISOString();
+  return conversations.map((conversation, ordinal) => ({
+    collection,
+    sourceFile,
+    conversationKey: conversation.key ?? '',
+    title: conversation.title ?? '',
+    provider,
+    ordinal,
+    turnCount: conversation.turns.length,
+    turnsJson: JSON.stringify(conversation.turns),
+    ingestedAt,
+    lastTurnAt: latestTurnTimestamp(conversation.turns),
+    lastModel: latestTurnModel(conversation.turns),
+    createdInThreadShelf: conversation.createdInThreadShelf ?? false,
+    threadCreatedAt: conversation.threadCreatedAt ?? '',
+    indexPending,
+    indexAttempts: 0,
+    indexRetryAt: 0,
+    indexError: '',
+    hasThreadShelfTurns:
+      conversation.createdInThreadShelf === true ||
+      conversation.turns.some(
+        (turn) => (turn as { createdInThreadShelf?: unknown })?.createdInThreadShelf === true,
+      ),
+  }));
+};
+
+const replaceThreadRowsLocked = async (
+  where: string,
+  rows: Record<string, unknown>[],
+): Promise<void> => {
+  const tbl = await openTable(THREADS_TABLE);
+  if (tbl) {
+    await ensureThreadsSchema(tbl);
+    // Tombstones are durable deletion jobs. They contain no conversation text.
+    const oldRows = await tbl.query().where(where).limit(Number.MAX_SAFE_INTEGER).toArray();
+    const keys = new Set(
+      rows.map((row) => JSON.stringify([row.collection, row.sourceFile, row.conversationKey])),
+    );
+    const tombstones = oldRows
+      .filter(
+        (row) => !keys.has(JSON.stringify([row.collection, row.sourceFile, row.conversationKey])),
+      )
+      .map((row) => ({
+        ...row,
+        title: '',
+        turnsJson: '[]',
+        lastModel: '',
+        turnCount: 0,
+        indexPending: 'delete',
+      }));
+    const next = [...rows, ...tombstones];
+    if (next.length)
+      await tbl
+        .mergeInsert(['collection', 'sourceFile', 'conversationKey'])
+        .whenMatchedUpdateAll()
+        .whenNotMatchedInsertAll()
+        .whenNotMatchedBySourceDelete({ where })
+        .execute(next);
+  } else if (rows.length) {
+    const database = await getDb();
+    const created = await database.createTable(THREADS_TABLE, rows, { mode: 'create' });
+    tableCache.set(THREADS_TABLE, created);
+  }
 };
 
 export const updateStoredThread = async (
@@ -410,18 +417,25 @@ export const updateStoredThread = async (
     if (!tbl) throw new Error('Stored thread table is unavailable');
     await ensureThreadsSchema(tbl);
     const ingestedAt = new Date().toISOString();
+    const where = [
+      `collection = '${escapeSqlString(collection)}'`,
+      `sourceFile = '${escapeSqlString(sourceFile)}'`,
+      `conversationKey = '${escapeSqlString(conversation.key)}'`,
+      "indexPending != 'delete'",
+    ].join(' AND ');
+    const current = await tbl.query().where(where).limit(1).toArray();
     const result = await tbl.update({
-      where: [
-        `collection = '${escapeSqlString(collection)}'`,
-        `sourceFile = '${escapeSqlString(sourceFile)}'`,
-        `conversationKey = '${escapeSqlString(conversation.key)}'`,
-      ].join(' AND '),
+      where,
       values: {
         title: conversation.title,
         provider,
         turnCount: conversation.turns.length,
         turnsJson: JSON.stringify(conversation.turns),
         ingestedAt,
+        indexPending: current[0]?.indexPending === 'all' ? 'all' : 'local',
+        indexAttempts: 0,
+        indexRetryAt: 0,
+        indexError: '',
         lastTurnAt: latestTurnTimestamp(conversation.turns),
         lastModel: latestTurnModel(conversation.turns),
         createdInThreadShelf: conversation.createdInThreadShelf ?? false,
@@ -455,6 +469,7 @@ export const updateStoredThreadFromCurrent = async (
       `collection = '${escapeSqlString(collection)}'`,
       `sourceFile = '${escapeSqlString(sourceFile)}'`,
       `conversationKey = '${escapeSqlString(conversationKey)}'`,
+      "indexPending != 'delete'",
     ].join(' AND ');
     const rows = await tbl.query().where(where).limit(2).toArray();
     if (rows.length !== 1) throw new StoredThreadWriteError();
@@ -468,6 +483,10 @@ export const updateStoredThreadFromCurrent = async (
         turnCount: conversation.turns.length,
         turnsJson: JSON.stringify(conversation.turns),
         ingestedAt: new Date().toISOString(),
+        indexPending: rows[0].indexPending === 'all' ? 'all' : 'local',
+        indexAttempts: 0,
+        indexRetryAt: 0,
+        indexError: '',
         lastTurnAt: latestTurnTimestamp(conversation.turns),
         lastModel: latestTurnModel(conversation.turns),
         createdInThreadShelf: conversation.createdInThreadShelf ?? false,
@@ -493,7 +512,7 @@ export const getStoredThreads = async (
     const tbl = await openTable(THREADS_TABLE);
     if (!tbl) return [];
     await ensureThreadsSchema(tbl);
-    const fileFilter = `sourceFile = '${escapeSqlString(sourceFile)}'`;
+    const fileFilter = `sourceFile = '${escapeSqlString(sourceFile)}' AND indexPending NOT IN ('delete', 'reset')`;
     const where = collection
       ? `collection = '${escapeSqlString(collection)}' AND ${fileFilter}`
       : fileFilter;
@@ -527,7 +546,9 @@ export const listThreadSummaries = async (collection: string): Promise<ThreadSum
     const fetch = (columns: string[]) =>
       tbl
         .query()
-        .where(`collection = '${escapeSqlString(collection)}'`)
+        .where(
+          `collection = '${escapeSqlString(collection)}' AND indexPending NOT IN ('delete', 'reset')`,
+        )
         .select(columns)
         .limit(Number.MAX_SAFE_INTEGER)
         .toArray();
@@ -569,6 +590,359 @@ export const deleteThreadsForCollection = async (collection: string): Promise<vo
   });
 };
 
+export interface ImportedFile {
+  readonly sourceFile: string;
+  readonly provider: string;
+  readonly conversations: readonly ThreadConversationInput[];
+}
+
+const conversationFromRow = (row: Record<string, unknown>): ThreadConversationInput | undefined => {
+  try {
+    return {
+      key: String(row.conversationKey),
+      title: String(row.title),
+      turns: validateTurns(JSON.parse(String(row.turnsJson))),
+      createdInThreadShelf: Boolean(row.createdInThreadShelf),
+      threadCreatedAt: String(row.threadCreatedAt || ''),
+    };
+  } catch {
+    return undefined;
+  }
+};
+
+const chunksFromThreadRows = (
+  rows: Record<string, unknown>[],
+): { chunks: ChunkRow[]; invalid: Record<string, unknown>[] } => {
+  const invalid: Record<string, unknown>[] = [];
+  const chunks = rows.flatMap((row) => {
+    if (row.indexPending === 'delete' || row.indexPending === 'reset') return [];
+    const conversation = conversationFromRow(row);
+    if (!conversation) {
+      invalid.push(row);
+      return [];
+    }
+    const turns = validateTurns(conversation.turns);
+    return chunkTurns(turns, {
+      sourceFile: String(row.sourceFile),
+      provider: row.provider as Provider | 'threadshelf',
+      conversationKey: String(row.conversationKey),
+      title: String(row.title),
+    }).map((chunk, index) => ({
+      ...chunk,
+      provider: chunk.createdInThreadShelf ? 'threadshelf' : chunk.provider,
+      id: `${row.sourceFile}|${row.conversationKey}|${chunk.turnIndex}|${index}`,
+    }));
+  });
+  return { chunks, invalid };
+};
+
+const readThreadScope = async (where: string): Promise<Record<string, unknown>[]> => {
+  const tbl = await openTable(THREADS_TABLE);
+  if (!tbl) return [];
+  await ensureThreadsSchema(tbl);
+  return tbl.query().where(where).limit(Number.MAX_SAFE_INTEGER).toArray();
+};
+
+const snapshotFingerprint = (rows: Record<string, unknown>[]): string =>
+  createHash('sha256')
+    .update(JSON.stringify(rows.map((row) => JSON.stringify(row)).sort()))
+    .digest('hex');
+
+// The archive is authoritative. A pending marker is committed WITH its turns;
+// the index can always be rebuilt after an interrupted second-table write.
+// clearFirst stages the entire folder before this single archive commit.
+export const replaceImportedFiles = async (
+  collection: string,
+  files: readonly ImportedFile[],
+  options: ChunkWriteOptions & { readonly clearFirst?: boolean } = {},
+): Promise<number> =>
+  withCollectionWriteLock(collection, async () => {
+    const scope = options.clearFirst
+      ? `collection = '${escapeSqlString(collection)}'`
+      : files.map((file) => `(${threadFileFilter(collection, file.sourceFile)})`).join(' OR ');
+    if (!scope) return 0;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      options.signal?.throwIfAborted();
+      const previous = await withCollectionWriteLock(THREADS_TABLE, () => readThreadScope(scope));
+      const previousByKey = new Map(
+        previous.map((row) => [JSON.stringify([row.sourceFile, row.conversationKey]), row]),
+      );
+      const next: Record<string, unknown>[] = [];
+      const matched = new Set<string>();
+      for (const file of files) {
+        const conversations = file.conversations.map((conversation) => {
+          const old = previousByKey.get(JSON.stringify([file.sourceFile, conversation.key]));
+          if (!old || old.indexPending === 'delete') return conversation;
+          matched.add(JSON.stringify([file.sourceFile, conversation.key]));
+          const oldConversation = conversationFromRow(old);
+          if (!oldConversation) {
+            const suffix = createHash('sha256')
+              .update(String(old.turnsJson))
+              .digest('hex')
+              .slice(0, 16);
+            next.push({
+              ...old,
+              conversationKey: `${conversation.key}:unreadable:${suffix}`,
+              indexPending: 'invalid',
+            });
+            return conversation;
+          }
+          const oldTurns = oldConversation.turns;
+          const localTurns = oldTurns.filter(
+            (turn) => (turn as { createdInThreadShelf?: boolean }).createdInThreadShelf,
+          );
+          const importedTurns = oldTurns.filter(
+            (turn) => !(turn as { createdInThreadShelf?: boolean }).createdInThreadShelf,
+          );
+          // Positional keys do not identify a conversation after a wholesale rewrite.
+          const text = (turn: unknown) => {
+            const t = turn as { user?: string; ai?: string; thinking?: string };
+            return [t.user, t.ai, t.thinking];
+          };
+          const sharedPrefix =
+            importedTurns.length > 0 &&
+            conversation.turns.length > 0 &&
+            importedTurns
+              .slice(0, Math.min(importedTurns.length, conversation.turns.length))
+              .every(
+                (turn, index) =>
+                  JSON.stringify(text(turn)) === JSON.stringify(text(conversation.turns[index])),
+              );
+          if (localTurns.length && /:\d+$/.test(conversation.key) && !sharedPrefix) {
+            const suffix = createHash('sha256')
+              .update(String(old.turnsJson))
+              .digest('hex')
+              .slice(0, 16);
+            next.push({
+              ...old,
+              conversationKey: `${conversation.key}:threadshelf:${suffix}`,
+              indexPending: 'all',
+            });
+            return conversation;
+          }
+          return { ...conversation, turns: [...conversation.turns, ...localTurns] };
+        });
+        next.push(...threadRows(collection, file.sourceFile, file.provider, conversations, 'all'));
+      }
+      // Missing/changed keys retain the full old branch if it has local authorship.
+      for (const old of previous) {
+        if (
+          ['delete', 'reset'].includes(String(old.indexPending)) ||
+          matched.has(JSON.stringify([old.sourceFile, old.conversationKey]))
+        )
+          continue;
+        if (
+          conversationFromRow(old) &&
+          !conversationFromRow(old)!.turns.some(
+            (turn) => (turn as { createdInThreadShelf?: boolean }).createdInThreadShelf,
+          )
+        )
+          continue;
+        next.push({ ...old, indexPending: 'all' });
+      }
+      const { chunks, invalid } = chunksFromThreadRows(next);
+      const embedded = await embedChunks(chunks, options.signal, options.onEmbeddingProgress);
+      options.signal?.throwIfAborted();
+      const committed = await withCollectionWriteLock(THREADS_TABLE, async () => {
+        if (snapshotFingerprint(previous) !== snapshotFingerprint(await readThreadScope(scope)))
+          return false;
+        options.signal?.throwIfAborted();
+        const resetMarker = options.clearFirst
+          ? threadRows(
+              collection,
+              'threadshelf://collection-reset',
+              'threadshelf',
+              [{ key: '__reset', title: '', turns: [] }],
+              'reset',
+            )
+          : [];
+        await replaceThreadRowsLocked(scope, [...next, ...resetMarker]);
+        const chunkScope = options.clearFirst
+          ? 'true'
+          : files.map((file) => `sourceFile = '${escapeSqlString(file.sourceFile)}'`).join(' OR ');
+        await replaceEmbeddedRowsLocked(collection, chunkScope, embedded);
+        await acknowledgeIndexLocked(scope, invalid);
+        return true;
+      });
+      if (committed) return chunks.length;
+    }
+    throw new StoredThreadWriteError(
+      'Archive changed repeatedly while embedding; retry the import',
+    );
+  });
+
+const acknowledgeIndexLocked = async (
+  where: string,
+  invalid: Record<string, unknown>[] = [],
+): Promise<void> => {
+  const tbl = await openTable(THREADS_TABLE);
+  if (!tbl) return;
+  for (const row of invalid) {
+    await tbl.update({
+      where: `${threadFileFilter(String(row.collection), String(row.sourceFile))} AND conversationKey = '${escapeSqlString(String(row.conversationKey))}'`,
+      values: {
+        indexPending: 'invalid',
+        indexError: 'Stored turns could not be decoded; original data retained',
+        indexAttempts: 1,
+        indexRetryAt: 0,
+      },
+    });
+  }
+  if (invalid.length)
+    console.error(
+      `[index:recovery] Preserved ${invalid.length} unreadable archive row(s); healthy conversations remain searchable.`,
+    );
+  await tbl.delete(`(${where}) AND indexPending IN ('delete', 'reset')`);
+  await tbl.update({
+    where: `(${where}) AND indexPending NOT IN ('', 'invalid')`,
+    values: { indexPending: '', indexAttempts: 0, indexRetryAt: 0, indexError: '' },
+  });
+};
+
+const indexScope = async (collection: string, sourceFile: string) => {
+  const collectionWhere = `collection = '${escapeSqlString(collection)}'`;
+  const reset = (await readThreadScope(`${collectionWhere} AND indexPending = 'reset'`)).length > 0;
+  const where = reset ? collectionWhere : threadFileFilter(collection, sourceFile);
+  return { where, reset, rows: await readThreadScope(where) };
+};
+
+// Only snapshot validation and publication hold the archive lock. Model loading
+// and inference never prevent unrelated chats from saving their answers.
+export const indexStoredFile = async (
+  collection: string,
+  sourceFile: string,
+  options: ChunkWriteOptions = {},
+): Promise<number> =>
+  withCollectionWriteLock(collection, async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const snapshot = await withCollectionWriteLock(THREADS_TABLE, () =>
+        indexScope(collection, sourceFile),
+      );
+      const { where, reset, rows } = snapshot;
+      if (!rows.some((row) => row.indexPending && row.indexPending !== 'invalid')) return 0;
+      const full =
+        reset || rows.some((row) => row.indexPending === 'all' || row.indexPending === 'delete');
+      try {
+        const prepared = chunksFromThreadRows(rows);
+        const chunks = prepared.chunks.filter((chunk) => full || chunk.createdInThreadShelf);
+        const embedded = await embedChunks(chunks, options.signal, options.onEmbeddingProgress);
+        const committed = await withCollectionWriteLock(THREADS_TABLE, async () => {
+          const current = await indexScope(collection, sourceFile);
+          if (
+            where !== current.where ||
+            snapshotFingerprint(rows) !== snapshotFingerprint(current.rows)
+          )
+            return false;
+          await replaceEmbeddedRowsLocked(
+            collection,
+            reset
+              ? 'true'
+              : `sourceFile = '${escapeSqlString(sourceFile)}'${full ? '' : ' AND createdInThreadShelf = true'}`,
+            embedded,
+          );
+          await acknowledgeIndexLocked(where, prepared.invalid);
+          return true;
+        });
+        if (committed) return chunks.length;
+      } catch (error) {
+        await withCollectionWriteLock(THREADS_TABLE, async () => {
+          if (snapshotFingerprint(rows) !== snapshotFingerprint(await readThreadScope(where)))
+            return;
+          const attempts = Math.max(0, ...rows.map((row) => Number(row.indexAttempts) || 0)) + 1;
+          const tbl = await openTable(THREADS_TABLE);
+          await tbl?.update({
+            where: `(${where}) AND indexPending NOT IN ('', 'invalid')`,
+            values: {
+              indexAttempts: attempts,
+              indexRetryAt: Date.now() + Math.min(15_000 * 2 ** (attempts - 1), 3_600_000),
+              indexError: (error instanceof Error ? error.message : 'Indexing failed').slice(
+                0,
+                500,
+              ),
+            },
+          });
+        });
+        throw error;
+      }
+    }
+    throw new StoredThreadWriteError(
+      'Archive changed repeatedly while embedding; indexing remains pending',
+    );
+  });
+
+export const deleteStoredFile = async (collection: string, sourceFile: string): Promise<void> =>
+  withCollectionWriteLock(collection, () =>
+    withCollectionWriteLock(THREADS_TABLE, async () => {
+      const where = threadFileFilter(collection, sourceFile);
+      await replaceThreadRowsLocked(where, []);
+      await replaceEmbeddedRowsLocked(
+        collection,
+        `sourceFile = '${escapeSqlString(sourceFile)}'`,
+        [],
+      );
+      await acknowledgeIndexLocked(where);
+    }),
+  );
+
+let recoveringIndexes: Promise<void> | undefined;
+export const recoverPendingIndexes = (
+  options: { readonly collection?: string; readonly retryFailed?: boolean } = {},
+): Promise<void> => {
+  if (recoveringIndexes) return recoveringIndexes.then(() => recoverPendingIndexes(options));
+  recoveringIndexes = (async () => {
+    const tbl = await openTable(THREADS_TABLE);
+    if (!tbl) return;
+    await ensureThreadsSchema(tbl);
+    const rows = await tbl
+      .query()
+      .where("indexPending NOT IN ('', 'invalid')")
+      .select(['collection', 'sourceFile', 'indexPending', 'indexAttempts', 'indexRetryAt'])
+      .limit(Number.MAX_SAFE_INTEGER)
+      .toArray();
+    const resets = new Set(
+      rows.filter((row) => row.indexPending === 'reset').map((row) => row.collection),
+    );
+    const jobs = new Map<string, Record<string, unknown>[]>();
+    for (const row of rows) {
+      if (
+        options.collection &&
+        options.collection !== 'all' &&
+        row.collection !== options.collection
+      )
+        continue;
+      const key = JSON.stringify([
+        row.collection,
+        resets.has(row.collection) ? null : row.sourceFile,
+      ]);
+      jobs.set(key, [...(jobs.get(key) ?? []), row]);
+    }
+    for (const job of jobs.values()) {
+      const attempts = Math.max(...job.map((row) => Number(row.indexAttempts) || 0));
+      const retryAt = Math.max(...job.map((row) => Number(row.indexRetryAt) || 0));
+      if (!options.retryFailed && (attempts >= 8 || retryAt > Date.now())) continue;
+      const row = job[0]!;
+      try {
+        await indexStoredFile(String(row.collection), String(row.sourceFile));
+      } catch (error) {
+        console.error('[index:recovery]', error);
+      }
+    }
+  })().finally(() => {
+    recoveringIndexes = undefined;
+  });
+  return recoveringIndexes;
+};
+
+export const startIndexRecovery = (): (() => void) => {
+  const run = () => {
+    void recoverPendingIndexes().catch((error) => console.warn('[index:recovery]', error));
+  };
+  run();
+  const timer = setInterval(run, 15_000);
+  timer.unref();
+  return () => clearInterval(timer);
+};
+
 export interface SearchResult {
   readonly id: string;
   readonly document: string;
@@ -587,6 +961,56 @@ export interface SearchResult {
   };
   readonly distance?: number;
 }
+
+// A pending full replacement may have different turn offsets from its old
+// vectors. Hide those files until recovery publishes their matching index.
+const readyIndexCache = new Map<string, { version: number; filter: string }>();
+const readyIndexFilter = async (collection: string): Promise<string> => {
+  const tbl = await openTable(THREADS_TABLE);
+  if (!tbl) return '';
+  await ensureThreadsSchema(tbl);
+  const version = await tbl.version();
+  const cached = readyIndexCache.get(collection);
+  if (cached?.version === version) return cached.filter;
+  const rows = await tbl
+    .query()
+    .where(
+      `collection = '${escapeSqlString(collection)}' AND indexPending IN ('all', 'delete', 'reset', 'invalid')`,
+    )
+    .select(['sourceFile', 'conversationKey', 'indexPending'])
+    .limit(Number.MAX_SAFE_INTEGER)
+    .toArray();
+  const excluded = rows.map((row) =>
+    row.indexPending === 'invalid'
+      ? `(sourceFile = '${escapeSqlString(String(row.sourceFile))}' AND conversationKey = '${escapeSqlString(String(row.conversationKey))}')`
+      : `sourceFile = '${escapeSqlString(String(row.sourceFile))}'`,
+  );
+  const filter = rows.some((row) => row.indexPending === 'reset')
+    ? 'false'
+    : excluded.length
+      ? `NOT (${[...new Set(excluded)].join(' OR ')})`
+      : '';
+  readyIndexCache.set(collection, { version, filter });
+  return filter;
+};
+
+export const renameStoredThread = async (
+  collection: string,
+  sourceFile: string,
+  conversationKey: string,
+  title: string,
+): Promise<StoredThreadRow> =>
+  withCollectionWriteLock(THREADS_TABLE, async () => {
+    const tbl = await openTable(THREADS_TABLE);
+    if (!tbl) throw new StoredThreadWriteError();
+    await ensureThreadsSchema(tbl);
+    const where = `${threadFileFilter(collection, sourceFile)} AND conversationKey = '${escapeSqlString(conversationKey)}' AND indexPending NOT IN ('delete', 'reset')`;
+    const result = await tbl.update({ where, values: { title } });
+    if (result.rowsUpdated !== 1) throw new StoredThreadWriteError();
+    invalidateCollectionStats(collection);
+    const [row] = await tbl.query().where(where).limit(1).toArray();
+    return storedThreadRow(row);
+  });
 
 export interface SearchOptions {
   readonly n?: number;
@@ -619,6 +1043,7 @@ export const searchCollection = async (
 
   const filters = [
     dateFilter,
+    await readyIndexFilter(collection),
     opts.origin ? `createdInThreadShelf = ${opts.origin === 'threadshelf'}` : '',
   ].filter(Boolean);
   const results = await vectorSearchRows(tbl, embedding, limit, filters.join(' AND '));
@@ -714,6 +1139,8 @@ export const keywordSearchCollection = async (
   await ensureChunkMetadataSchema(tbl);
 
   const clauses = [`lower(document) LIKE '%${escapeLikePattern(needle)}%'`];
+  const ready = await readyIndexFilter(collection);
+  if (ready) clauses.push(ready);
   if (opts.roles?.length) {
     clauses.push(`role IN (${opts.roles.map((role) => `'${escapeSqlString(role)}'`).join(', ')})`);
   }
@@ -905,10 +1332,6 @@ export const dropCollection = async (name: string): Promise<void> => {
     invalidateCollectionStats(name);
     await deleteThreadsForCollection(name);
   });
-};
-
-export const resetCollection = async (collection: string): Promise<void> => {
-  return dropCollection(collection);
 };
 
 // --- internals ---

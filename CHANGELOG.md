@@ -2,6 +2,119 @@
 
 All notable changes to ThreadShelf are documented here.
 
+## 1.2.0 — 2026-09-13
+
+### Archive durability
+
+- Replace imported and ThreadShelf-authored rows with a single LanceDB merge
+  commit instead of delete-then-add, so a failed write no longer leaves a thread
+  or collection half-deleted.
+- Keep local continuations when an export is imported again, including branches
+  whose conversation key disappeared or was rewritten; exports that parse to zero
+  conversations are skipped and never delete archived rows.
+- `clearFirst` stages the whole folder and its embeddings before committing. An
+  invalid or empty file, or a cancellation, keeps the old collection and reports
+  `replacementSkipped` ("Nothing was saved…") instead of an empty collection.
+- Track pending index work durably in `__threads.indexPending`. The HTTP server,
+  the MCP server and the `ingest`/`search` CLIs recover it on start, with
+  15 s–1 h backoff, a pause after 8 failures, and quarantine of undecodable rows
+  that keeps their raw data.
+- Embed outside the global thread-table lock and re-check the snapshot before
+  committing, so a long import no longer blocks saving a chat answer elsewhere.
+- Rename changes only the title, and appending an answer reads the current turns
+  under the lock, so neither can overwrite the other.
+- Open LanceDB with `readConsistencyInterval: 0`, so the server, MCP and CLIs see
+  each other's commits.
+- Share one embedding model load between concurrent callers and log its progress
+  to stderr, keeping the MCP stdout protocol clean.
+- Report embedding progress per batch during indexing instead of stalling at 100%.
+
+### llama.cpp performance tuning
+
+- New Settings for the KV cache (Quality Q8 / Memory saver Q4 / F16), MTP
+  speculative decoding (Auto draft 2 / Aggressive draft 3 / Off) and reasoning
+  effort. Each option is applied only when `llama-server --help` and the GGUF
+  header support it, and is otherwise logged as skipped with a reason.
+- Read GGUF metadata (architecture, native context, NextN/MTP layers) with a
+  bounded, cached header parser instead of guessing from file names.
+- Run a single server slot (`--parallel 1`) so concurrent local chats queue.
+- Show the effective runtime profile in the llama.cpp log and the Settings
+  status badge, with skip reasons in its tooltip; warn above 64K context.
+- `setup:llama --check` compares an installed managed build with the latest
+  stable release and prints the update command for the installed variant.
+
+### Tests
+
+- Archive recovery regressions (`test/archive-recovery.test.js`), a fake
+  `llama-server` E2E for launch flags, diagnostics and restart on settings
+  change, GGUF parser hardening and cache tests, `setup:llama --check` output,
+  and Playwright coverage for the tuning settings and runtime badge.
+
+## 1.1.0 — 2026-08-22
+
+### Guided setup and model catalog
+
+- Resolve `llama.cpp` and a fitting GGUF model in one plan, showing every URL,
+  digest, size, and destination before a single confirmation runs it.
+- Browse Hugging Face GGUF repositories read-only over the public API: search,
+  popularity, per-quantization sizes, shard grouping, and multimodal projectors.
+  No account or token is needed for public repositories.
+- Judge memory fit server-side from detected VRAM/RAM, so the catalog, the setup
+  plan, and the UI agree on one fits/tight/too-large verdict per quantization.
+- Detect gated repositories up front and mark them in the UI, reporting a missing
+  `HF_TOKEN` before a download starts rather than as a 401 midway.
+- Download models into `downloadDirectory` (default `.threadshelf/models`,
+  override `THREADSHELF_MODELS_PATH`), always part of the searched model roots so
+  a new model appears without further configuration.
+- Open the catalog from Settings or the chat model menu; a freshly downloaded
+  model is selected automatically.
+
+### llama.cpp release resolution
+
+- Follow the upstream `nightly-tag.txt` pointer to the release that actually
+  carries binaries. Upstream's move to semver releases had made every install and
+  `--check` fail with "No official binary exists in release v0.2.0".
+- Pin an exact upstream build with `--release bNNNNN`.
+- Sort accelerator assets by toolkit version, so `cuda-13.3` wins over
+  `cuda-12.4` instead of losing an alphabetical comparison.
+- Raise the anonymous GitHub API rate limit with `GITHUB_TOKEN`/`GH_TOKEN`, and
+  report clearly when the limit is hit.
+- Treat reinstalling an identical build as a no-op instead of an error.
+
+### Downloads and consent
+
+- Share one resumable, hash-verifying downloader between runtime archives and
+  models, computing the digest in the same pass as the write instead of reading a
+  large archive back off disk. Range-based resume, retry with backoff, and a
+  stall timeout are built in; a digest mismatch deletes the partial file so it
+  can never poison a later resume.
+- Make Cancel actually cancel. The streamed routes now watch the response's
+  `close` as well as the request's `aborted`, so a cancelled browser fetch stops
+  the transfer instead of leaving the server downloading in the background.
+- Keep the `.part` file of a cancelled transfer so the next attempt resumes;
+  only a genuine failure deletes it. Interrupted runtime installs resume too.
+- Bind a setup run to the plan the user approved. Plans carry a fingerprint of
+  versions, digests, and sizes; the server re-resolves everything itself and
+  returns `409` with the replacement plan when that fingerprint moved.
+- Report an already-installed model as reuse rather than offering it as a fresh
+  multi-gigabyte download.
+
+### Fixes
+
+- Restore model roots on other Windows drives: `path.relative()` between drives
+  returns an absolute path with no `..` prefix, which the containment check read
+  as nested and silently dropped.
+- Rank automatic quantization choice by quality tier rather than size, so a
+  legacy `Q4_1` no longer beats `Q4_K_M`, and `Q8_0` is no longer misread as
+  legacy.
+- Read the `gated` flag from expanded Hub responses; list responses omit it,
+  which would have left the gating warning permanently invisible.
+- Match runtime data roots by glob in `.gitignore` and `check-repo-hygiene.ts`. A
+  130 MB `.threadshelf-demo/` LanceDB tree had reached the index because the rule
+  was exactly `.threadshelf/`.
+- Point the repository, homepage, issue, and CI badge links at
+  `ChrystianSchutz/ThreadShelf`.
+
 ## 1.0.0 — 2026-07-26
 
 Initial public release.

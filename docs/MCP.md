@@ -4,6 +4,27 @@ ThreadShelf includes a stdio MCP server so local AI tools can query indexed conv
 
 MCP is useful when you want Cursor, Claude Desktop, or another MCP-aware client to search your local AI chat archive without manually opening the web UI.
 
+## Server metadata
+
+- Transport: stdio
+- Authentication: none
+- Language: TypeScript
+- License: MIT
+- Runtime: Node.js 20.19+
+- Install: clone the repository and run `npm ci`
+- Start: `npm run mcp`
+- Data location: local LanceDB / ThreadShelf archive
+- Network service required for archive search: no
+- MCP tools: 5
+
+The tools are:
+
+- `list_collections`
+- `list_files`
+- `get_stats`
+- `search`
+- `read_thread`
+
 ## What MCP Uses
 
 The MCP server does not create a separate index. It reads the same local data as the web app:
@@ -18,9 +39,18 @@ The stdio server defaults to MCP protocol `2024-11-05` for broad Claude Desktop
 compatibility, and negotiates `2025-03-26` or `2025-06-18` when a client requests
 one of those versions during `initialize`.
 
-## Start Manually
+## Install and start
 
-From the repository root:
+From a clean clone:
+
+```bash
+git clone https://github.com/ChrystianSchutz/ThreadShelf.git
+cd ThreadShelf
+npm ci
+npm run mcp
+```
+
+If ThreadShelf is already installed, start the server from the repository root:
 
 ```bash
 npm run mcp
@@ -28,15 +58,27 @@ npm run mcp
 
 The server communicates over stdio. It is not an HTTP server and should not be opened in a browser.
 
+## Tested MCP clients
+
+The automated compatibility test starts the real ThreadShelf process over stdio,
+initializes an MCP session, confirms that `tools/list` returns all five tools, and
+calls `list_collections` and `get_stats` against an isolated LanceDB directory.
+
+Claude Desktop and Cursor are documented configuration targets. Claude Desktop,
+Cursor, Codex, and VS Code MCP are protocol-compatible, but are not currently
+included in the project's manual compatibility test matrix. This documentation
+does not mark a client as tested based only on protocol compatibility.
+
 ## Client Command
 
 Most MCP clients need:
 
 ```bash
-npm run mcp
+npm run mcp --silent
 ```
 
-Set the working directory to the repository root.
+The `--silent` flag keeps npm's lifecycle banner off the MCP stdout channel. Set
+the working directory to the repository root.
 
 If your database lives somewhere else, pass environment variables in the MCP client config:
 
@@ -58,7 +100,7 @@ Different clients use slightly different config files, but the shape usually loo
   "mcpServers": {
     "threadshelf": {
       "command": "npm",
-      "args": ["run", "mcp"],
+      "args": ["run", "mcp", "--silent"],
       "cwd": "C:\\Users\\you\\path\\to\\threadshelf",
       "env": {
         "LANCEDB_PATH": "C:\\Users\\you\\path\\to\\threadshelf\\.lancedb"
