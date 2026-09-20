@@ -1,6 +1,6 @@
 {
   "name": "threadshelf",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Local semantic search, backup, and RAG for your AI chats — ChatGPT, Claude, Google AI Studio, OpenRouter, LM Studio, and Grok — searchable from a web UI, HTTP API, or MCP",
   "license": "MIT",
   "type": "module",

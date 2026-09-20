@@ -2,6 +2,21 @@
 
 All notable changes to ThreadShelf are documented here.
 
+## 1.2.3 — 2026-09-20
+
+### Fixed
+
+- Stop `test/packaging.test.js` asserting that `dist/` is built. `npm test`
+  runs before `build:client` in `npm run check`, and a fresh clone has no
+  `dist/` at all, so the check failed on CI and on any machine that had not
+  already built. The emitted-file assertions moved into the suite that skips
+  when `dist/` is absent, and the `process.cwd()` guard is now scoped by
+  extension per tree (`.ts` under `src/` and `mcp/`, `.js` under `bin/`) so
+  stale build output cannot fail it.
+
+The published package is unchanged from 1.2.2: both fixes are to test files,
+which the `files` allow-list does not ship.
+
 ## 1.2.2 — 2026-09-20
 
 ### Packaging review follow-ups
