@@ -243,6 +243,13 @@ export interface GenerationModelsResponse {
   readonly runtime: GenerationRuntimeStatus;
 }
 
+/** One entry of `GET /v1/models`, ThreadShelf's OpenAI-compatible local API. */
+export interface LocalApiModel {
+  readonly id: string;
+  readonly object: 'model';
+  readonly owned_by: string;
+}
+
 export interface GenerationRuntimeResponse {
   readonly backend: 'llama.cpp';
   readonly runtime: GenerationRuntimeStatus;

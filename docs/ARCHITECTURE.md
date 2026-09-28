@@ -32,6 +32,9 @@ Created chat -> internal __threads namespace -> generation provider -> persisted
 - Serves the web UI.
 - Exposes collection, ingest, search, thread, upload, stats, and health routes.
 - Mounts HTTP routes from `src/routes/`.
+- Mounts the OpenAI/Anthropic-compatible local model API at `/v1`
+  (`src/routes/local-api.ts`) ahead of the app-wide 512 KB JSON parser, since
+  inference bodies carry whole conversations.
 
 `src/routes/`
 
@@ -127,6 +130,8 @@ Archive/index recovery (`src/store.ts`):
 - Discovers current GGUF files under default and user-configured roots.
 - Manages one loopback-only `llama-server` process for the selected model.
 - Wraps the OpenAI-compatible llama.cpp and OpenRouter chat APIs.
+- Maps public model ids to GGUF files for the `/v1` local model API and loads
+  them under the same model lease as UI chats (`local-api.ts`).
 - Converts provider SSE into redacted NDJSON progress and token events for the UI.
 - Reports whether a GGUF is discovered, loading, or active in the managed runtime.
 - Maps validated CPU/GPU/hybrid/multi-GPU profiles to upstream llama.cpp flags.
@@ -273,6 +278,12 @@ Core routes:
 - `POST /api/generation/catalog/download` (**Experimental Beta**, loopback-only NDJSON, cancellable)
 - `GET /api/generation/setup/plan` (**Experimental Beta**, loopback only)
 - `POST /api/generation/setup/run` (**Experimental Beta**, loopback-only NDJSON; needs `confirm` plus the approved `fingerprint`)
+
+Local model API (**Experimental Beta**, loopback only; see [LOCAL_API.md](LOCAL_API.md)):
+
+- `GET /v1/models`, `GET /v1/models/{id}`
+- `POST /v1/chat/completions`, `POST /v1/completions`, `POST /v1/responses` (OpenAI)
+- `POST /v1/messages`, `POST /v1/messages/count_tokens` (Anthropic)
 
 ## Testing Layers
 

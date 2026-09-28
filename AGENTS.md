@@ -54,6 +54,8 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
   store.ts          LanceDB access
   validation.ts     Turn/types + input validation
   routes/           HTTP routes (health, search, thread, collections, files, ingest, insights)
+    local-api.ts           OpenAI/Anthropic-compatible `/v1` relay to the managed llama-server
+    local-origin.ts        Host/Origin guard shared by `/api` and `/v1`
     stream-abort.ts        Shared "client went away" AbortController for streamed routes
   services/         search, thread, collections, insights business logic
   generation/       Experimental Beta provider plugins, config, model discovery, llama wrapper
@@ -63,6 +65,7 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
     hardware.ts            Accelerator/RAM detection and the model "will it fit" verdict
     quick-setup.ts         One-screen setup plan (runtime + model), fingerprint, runner
     master-prompts.ts      User system prompts on disk (.threadshelf/master-prompts.json)
+    local-api.ts           Public model ids for `/v1` and on-demand loading under the model lease
     error-log.ts           Optional rotating generation errors (.threadshelf/generation-errors.log)
     filesystem-browser.ts  Loopback-only, directory-only model-root browser
 client/             React + Vite + TypeScript web UI (npm workspace)
@@ -72,6 +75,7 @@ client/             React + Vite + TypeScript web UI (npm workspace)
     components/QuickSetupPanel.tsx    One-confirmation llama.cpp + model install
     components/NumberCombobox.tsx Typeable token-budget dropdown (presets + free entry)
     components/MasterPromptMenu.tsx  Master-prompt editor (server-stored, sent with every request)
+    components/LocalApiPanel.tsx  Settings panel: `/v1` base URL, model ids, copyable examples
     components/NotFound.tsx       Router `defaultNotFoundComponent` for unknown URLs
 mcp/server.ts       MCP stdio server exposing local search
 test/               Node test runner unit tests + fixtures/

@@ -13,6 +13,7 @@ import type {
 import { toast } from '../toast';
 import { DirectoryPicker } from './DirectoryPicker';
 import { GenerationRuntimeBadge } from './GenerationRuntimeBadge';
+import { LocalApiPanel } from './LocalApiPanel';
 import { ModelCatalogModal } from './ModelCatalogModal';
 import { NumberCombobox } from './NumberCombobox';
 import { QuickSetupPanel } from './QuickSetupPanel';
@@ -418,6 +419,8 @@ export function GenerationSettings() {
           </div>
         </div>
       </div>
+
+      <LocalApiPanel />
 
       <div className="panel generation-panel">
         <div className="panel-head">

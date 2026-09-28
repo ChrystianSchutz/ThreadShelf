@@ -2,6 +2,28 @@
 
 All notable changes to ThreadShelf are documented here.
 
+## Unreleased
+
+### Added
+
+- **Local model API** (Experimental Beta): the GGUF models ThreadShelf manages
+  are now served over the OpenAI- and Anthropic-compatible HTTP API that LM
+  Studio and Ollama use, at `http://localhost:3000/v1`. It covers
+  `GET /v1/models`, `POST /v1/chat/completions`, `/v1/completions`,
+  `/v1/responses`, `/v1/messages` and `/v1/messages/count_tokens`, all with
+  streaming. The requested model loads on demand. Requests are relayed
+  unchanged to the managed `llama-server`, so tools, sampling parameters and
+  structured output behave as llama.cpp implements them. Errors come back in
+  each SDK's own format. The API accepts requests only from this machine, and
+  API calls are never archived. Settings shows the base URL, model ids and
+  copyable examples. See [docs/LOCAL_API.md](docs/LOCAL_API.md).
+
+### Fixed
+
+- API/MCP end-to-end tests now isolate the model download directory
+  (`THREADSHELF_MODELS_PATH`), so models a developer has downloaded no longer
+  leak into test servers.
+
 ## 1.2.3 — 2026-09-20
 
 ### Fixed

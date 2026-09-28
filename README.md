@@ -444,6 +444,24 @@ settings, supports favorites, and exposes detailed runtime logs only on demand.
 Active streams hold a model lease so concurrent eject or configuration changes
 cannot unload a model mid-response.
 
+### Use your local models from other apps
+
+ThreadShelf also serves its GGUF models over the **OpenAI- and
+Anthropic-compatible API** that LM Studio and Ollama use. Point any SDK or tool
+at `http://localhost:3000/v1`, use any API key, and pass a model id from
+`GET /v1/models`:
+
+```bash
+curl http://localhost:3000/v1/chat/completions   -H "Content-Type: application/json"   -d '{"model": "Bielik-11B-v3.0-Instruct.Q8_0", "messages": [{"role": "user", "content": "Cześć!"}]}'
+```
+
+The endpoints are `/v1/chat/completions`, `/v1/completions`, `/v1/responses`
+and `/v1/messages`, with streaming. The model loads on the first request. The
+API accepts requests only from this machine, and they are not saved to the
+archive. **Settings → Conversation generation → Local model API** shows the URL,
+your model ids and copyable examples. Details:
+[Local model API](docs/LOCAL_API.md).
+
 ### Guided setup: runtime and model in one confirmation
 
 **Settings → Conversation generation → Set up local generation** resolves one
@@ -742,6 +760,7 @@ checks.
 - [MCP Setup](docs/MCP.md) — run the stdio MCP server and what it exposes.
 - [OpenRouter Export](docs/OPENROUTER.md) — the browser export flow + limitations.
 - [Experimental Generation](docs/GENERATION_BETA.md) — llama.cpp/OpenRouter setup, privacy, and API.
+- [Local model API](docs/LOCAL_API.md) — OpenAI/Anthropic-compatible `/v1` endpoints for other apps.
 - [Real Data Testing](docs/REAL_DATA_TESTING.md) — validate private exports safely.
 - [FAQ](docs/FAQ.md) — common questions.
 - [Changelog](CHANGELOG.md) — release highlights.

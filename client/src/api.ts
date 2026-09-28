@@ -11,6 +11,7 @@ import type {
   GenerationProviderId,
   GenerationResponse,
   GenerationRuntimeResponse,
+  LocalApiModel,
   LlamaRuntimeDiagnostics,
   GenerationStreamEvent,
   MasterPromptCollection,
@@ -139,6 +140,19 @@ export const api = {
       if (signal?.aborted) throw e; // caller cancelled — not a failed ping
       return false;
     }
+  },
+
+  /** Models served by the local API at /v1, which answers in OpenAI's error shape. */
+  async localApiModels(signal?: AbortSignal): Promise<LocalApiModel[]> {
+    const response = await fetch('/v1/models', { signal });
+    const data = (await response.json().catch(() => ({}))) as {
+      data?: LocalApiModel[];
+      error?: { message?: string };
+    };
+    if (!response.ok) {
+      throw new ApiError(response.status, data.error?.message ?? response.statusText);
+    }
+    return data.data ?? [];
   },
 
   collections(signal?: AbortSignal) {

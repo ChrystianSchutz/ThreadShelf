@@ -2,10 +2,15 @@ import './env.js';
 import express from 'express';
 import { join } from 'path';
 import apiRouter from './routes/index.js';
+import { requireLocalOrigin } from './routes/local-origin.js';
+import localApiRouter from './routes/local-api.js';
 import { dataDir, packagePath } from './paths.js';
 import { startIndexRecovery } from './store.js';
 
 const app = express();
+// Mounted ahead of the app-wide body parser: inference requests carry whole
+// conversations (and base64 images), so /v1 parses JSON with its own limit.
+app.use('/v1', localApiRouter);
 app.use(express.json({ limit: '512kb' }));
 
 // Package assets resolve against the installed module, never process.cwd():
@@ -16,49 +21,7 @@ app.use(express.static(PUBLIC));
 // button (e.g. the OpenRouter exporter). Read-only static files.
 app.use('/scripts', express.static(packagePath('scripts')));
 
-const normalizeRequestHost = (value: string | undefined): string => {
-  const host = String(value || '')
-    .trim()
-    .toLowerCase();
-  if (!host) return '';
-  if (host.startsWith('[')) return host.replace(/]:\d+$/, ']').replace(/^\[(.*)]$/, '$1');
-  return host.replace(/:\d+$/, '');
-};
-
-const localHosts = (): Set<string> => {
-  const configuredHost = normalizeRequestHost(process.env.HOST || '127.0.0.1');
-  const configuredAllowedHosts = (process.env.ALLOWED_HOSTS || '')
-    .split(',')
-    .map((host) => normalizeRequestHost(host))
-    .filter(Boolean);
-  return new Set(
-    ['localhost', '127.0.0.1', '::1', configuredHost, ...configuredAllowedHosts].filter(
-      (host) => host && host !== '0.0.0.0' && host !== '::',
-    ),
-  );
-};
-
-app.use('/api', (req, res, next) => {
-  const allowedHosts = localHosts();
-  const host = normalizeRequestHost(req.headers.host);
-  if (!allowedHosts.has(host)) {
-    return res.status(403).json({ error: 'Forbidden host' });
-  }
-
-  const origin = req.headers.origin;
-  if (origin) {
-    try {
-      const originHost = normalizeRequestHost(new URL(origin).host);
-      if (!allowedHosts.has(originHost)) {
-        return res.status(403).json({ error: 'Forbidden origin' });
-      }
-    } catch {
-      return res.status(403).json({ error: 'Invalid origin' });
-    }
-  }
-
-  next();
-});
+app.use('/api', requireLocalOrigin);
 
 app.use(apiRouter);
 

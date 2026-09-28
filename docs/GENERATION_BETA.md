@@ -451,6 +451,10 @@ prompt**. They disappear when the tab session ends.
 
 ## HTTP API
 
+To use the local models from other apps through the OpenAI or Anthropic API,
+the way you would with LM Studio or Ollama, see
+[Local model API](LOCAL_API.md). The routes below are ThreadShelf's own UI API.
+
 All routes are **Experimental Beta**:
 
 - `GET /api/generation/hardware` — detected accelerators, RAM, and model budget;

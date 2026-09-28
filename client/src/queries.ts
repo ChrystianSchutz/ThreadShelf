@@ -58,6 +58,14 @@ export const useFilesQuery = (collection: string, enabled: boolean) => {
   });
 };
 
+export const useLocalApiModelsQuery = () => {
+  return useQuery({
+    queryKey: ['local-api-models'],
+    queryFn: ({ signal }) => api.localApiModels(signal),
+    staleTime: 30_000,
+  });
+};
+
 export const useGenerationThreadsQuery = () => {
   return useQuery({
     queryKey: ['generation-threads'],
