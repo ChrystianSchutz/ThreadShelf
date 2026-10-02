@@ -23,7 +23,7 @@ const forbiddenDirectories =
 const forbiddenExtensions =
   /\.(?:zip|7z|tar|gz|gguf|onnx|lance|txn|manifest|db|sqlite3?|pem|key|p12|log)$/i;
 const allowedJson = [
-  /^(?:package|package-lock|tsconfig|tsconfig.build|vite\.config)\.json$/i,
+  /^(?:package|package-lock|tsconfig|tsconfig\.build|vite\.config)\.json$/i,
   /^client\/(?:package|tsconfig)\.json$/i,
   /^test\/fixture\.json$/i,
   /^test\/fixtures\/.+\.json$/i,
