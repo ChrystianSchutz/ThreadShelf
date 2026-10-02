@@ -131,12 +131,12 @@ describe('llama.cpp runtime tuning', () => {
     assert.equal(defaults.flashAttention, 'auto');
   });
 
-  it('flags experimental and beyond-native context sizes', () => {
+  it('flags long and beyond-native context sizes', () => {
     assert.equal(entry(resolveLlamaTuning(balanced, modernHelp, qwen), 'ctx').note, undefined);
     assert.match(
       entry(resolveLlamaTuning({ ...balanced, contextSize: 131_072 }, modernHelp, qwen), 'ctx')
         .note,
-      /experimental/,
+      /long context/,
     );
     assert.match(
       entry(resolveLlamaTuning({ ...balanced, contextSize: 524_288 }, modernHelp, qwen), 'ctx')

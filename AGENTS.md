@@ -17,8 +17,8 @@ Parsing, embeddings, storage, and search run on the user's machine. **By default
 no chat data leaves the device.** The embedding model may be downloaded on first use.
 Treat all real chat exports as private.
 
-The optional conversation-generation layer is **Experimental Beta**. Its
-primary `llama.cpp` engine is local and loopback-only. OpenRouter is an explicit,
+The optional conversation-generation layer's primary `llama.cpp` engine is
+local and loopback-only. OpenRouter is an explicit,
 opt-in external exception: picking the OpenRouter provider tab sends selected
 user/assistant thread content, the optional master prompt, and the new prompt
 off-device; archived thinking is excluded. There is no longer a per-send consent
@@ -44,6 +44,7 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
   server.ts         Express app entrypoint
   env.ts            Startup loader for the optional, gitignored root `.env`
   load-env.ts       Testable `.env` loading helper (explicit process env wins)
+  local-api-network.ts  Optional all-interfaces listener serving only `/v1`
   cli.ts            `npm run parse` CLI
   parser.ts         Provider detection + export -> normalized turns
   chunking.ts       Turn -> embeddable chunks
@@ -54,15 +55,18 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
   store.ts          LanceDB access
   validation.ts     Turn/types + input validation
   routes/           HTTP routes (health, search, thread, collections, files, ingest, insights)
+    local-api.ts           OpenAI/Anthropic-compatible `/v1` router (key, on/off, unload, relay)
+    local-origin.ts        Host/Origin guards: `/api` + loopback `/v1`, and the network listener
     stream-abort.ts        Shared "client went away" AbortController for streamed routes
   services/         search, thread, collections, insights business logic
-  generation/       Experimental Beta provider plugins, config, model discovery, llama wrapper
+  generation/       Generation provider plugins, config, model discovery, llama wrapper
     downloader.ts          Shared resumable, hash-verifying downloader (runtime + models)
     model-catalog.ts       Read-only Hugging Face GGUF browser (public API, no token)
     model-download.ts      Plans and fetches catalog models into the download directory
     hardware.ts            Accelerator/RAM detection and the model "will it fit" verdict
     quick-setup.ts         One-screen setup plan (runtime + model), fingerprint, runner
     master-prompts.ts      User system prompts on disk (.threadshelf/master-prompts.json)
+    local-api.ts           Public model ids for `/v1` and on-demand loading under the model lease
     error-log.ts           Optional rotating generation errors (.threadshelf/generation-errors.log)
     filesystem-browser.ts  Loopback-only, directory-only model-root browser
 client/             React + Vite + TypeScript web UI (npm workspace)
@@ -72,6 +76,8 @@ client/             React + Vite + TypeScript web UI (npm workspace)
     components/QuickSetupPanel.tsx    One-confirmation llama.cpp + model install
     components/NumberCombobox.tsx Typeable token-budget dropdown (presets + free entry)
     components/MasterPromptMenu.tsx  Master-prompt editor (server-stored, sent with every request)
+    components/LocalApiPanel.tsx  Settings panel: `/v1` URLs, model ids, examples, key + network access
+    components/LocalApiGuide.tsx  Guide modal: live status, Claude Code/Codex/DeepSeek setup, settings help
     components/NotFound.tsx       Router `defaultNotFoundComponent` for unknown URLs
 mcp/server.ts       MCP stdio server exposing local search
 test/               Node test runner unit tests + fixtures/
@@ -194,6 +200,12 @@ stored thread -> generation registry -> llama.cpp (local) OR OpenRouter (externa
   with `readConsistencyInterval: 0` so processes see each other's commits.
 - Rename updates only the title column; appends build turns from the current row
   inside the thread-table lock.
+- Local API model ids use file names, folder prefixes for duplicate names, and
+  stable hash suffixes when those prefixes still collide. Never silently drop a
+  discovered model or expose its path. Idle unload and targeted API unload hold
+  runtime control through process exit; model checks for unload happen inside
+  that control. Access-only UI saves omit unchanged llama.cpp settings so key
+  changes and disabling network access remain possible during generation.
 - Reimport preserves ThreadShelf-authored continuations, including branches whose
   conversation keys disappear. A rewritten positional key preserves the old
   branch separately. Exports that parse to zero conversations are skipped and

@@ -1,6 +1,7 @@
 // Stand-in for llama-server used by tests. It records every argv it receives,
 // answers `--help` / `--list-devices` like a modern build, and serves the two
 // endpoints ThreadShelf uses: `/health` and an OpenAI-compatible chat stream.
+// Other `/v1` POSTs echo their path and `model`, for the local API relay tests.
 import { appendFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 
@@ -32,21 +33,28 @@ if (args.includes('--list-devices')) {
 
 const port = Number(args[args.indexOf('--port') + 1]);
 const server = createServer(async (req, res) => {
-  for await (const _chunk of req) {
-    // Drain the request body.
-  }
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const raw = Buffer.concat(chunks).toString('utf8');
+  const body = raw ? JSON.parse(raw) : {};
   if (req.url === '/health') {
     res.setHeader('content-type', 'application/json');
     res.end('{"status":"ok"}');
     return;
   }
-  if (req.url === '/v1/chat/completions') {
+  if (req.url === '/v1/chat/completions' && body.stream !== false) {
     res.setHeader('content-type', 'text/event-stream');
     res.write('data: {"choices":[{"delta":{"content":"Fake llama answer"}}]}\n\n');
     res.write(
       'data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}\n\n',
     );
     res.end('data: [DONE]\n\n');
+    return;
+  }
+  if (req.method === 'POST' && req.url?.startsWith('/v1/')) {
+    // Any other inference call echoes what arrived, so callers can assert on the relay.
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ path: req.url, model: body.model, content: 'Fake llama answer' }));
     return;
   }
   res.statusCode = 404;

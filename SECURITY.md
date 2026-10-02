@@ -33,10 +33,9 @@ not do this on an untrusted network.
 The browser UI uses same-origin API requests and does not enable cross-origin
 access by default.
 
-## Experimental Generation Boundary
+## Generation Boundary
 
-Conversation generation is **Experimental Beta**. Managed `llama-server`
-processes bind to an ephemeral `127.0.0.1` port, configured llama.cpp URLs must
+Managed `llama-server` processes bind to an ephemeral `127.0.0.1` port, configured llama.cpp URLs must
 be loopback-only, and selected GGUF files must be under configured model roots.
 
 OpenRouter is an explicit external exception to the local data path. Sending a

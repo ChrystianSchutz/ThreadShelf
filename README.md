@@ -13,7 +13,7 @@ thread, and continue it with a local GGUF model through `llama.cpp` or the
 explicitly external OpenRouter provider.
 
 The archive pipeline—parsing, embeddings, LanceDB storage, search, HTTP API, and
-MCP—runs locally. Conversation generation is an **Experimental Beta**:
+MCP—runs locally. Conversation generation is optional:
 `llama.cpp` stays loopback-only; switching to the clearly marked
 **OpenRouter · external** provider sends the selected user/assistant context and
 new prompt off-device.
@@ -413,13 +413,12 @@ and narrow the list with the filter box.
   it later, and pin conversations to keep them at the top of the browse list.
   Both are stored in your browser's localStorage; nothing leaves the machine.
 
-## Experimental generation: llama.cpp + OpenRouter
+## Conversation generation: llama.cpp + OpenRouter
 
 ![ThreadShelf conversation generation with local llama.cpp and external OpenRouter](docs/assets/conversation-generation.png)
 
-> **Experimental Beta.** The archive/search path is the stable release scope;
-> generation interfaces and model compatibility may still change. Original
-> export files are never modified.
+> Generation is optional: archive indexing and search never depend on it, and
+> original export files are never modified.
 
 Use **New chat** to start a locally saved ThreadShelf conversation, or open an
 imported thread and choose **Continue this conversation**:
@@ -443,6 +442,37 @@ directories plus custom roots. It separates model selection from context/output
 settings, supports favorites, and exposes detailed runtime logs only on demand.
 Active streams hold a model lease so concurrent eject or configuration changes
 cannot unload a model mid-response.
+
+### Use your local models from other apps
+
+ThreadShelf also serves its GGUF models over the **OpenAI- and
+Anthropic-compatible API** that LM Studio and Ollama use. Point any SDK or tool
+at `http://localhost:3000/v1`, use any API key, and pass a model id from
+`GET /v1/models`:
+
+```bash
+curl http://localhost:3000/v1/chat/completions   -H "Content-Type: application/json"   -d '{"model": "Bielik-11B-v3.0-Instruct.Q8_0", "messages": [{"role": "user", "content": "Cześć!"}]}'
+```
+
+The endpoints are `/v1/chat/completions`, `/v1/completions`, `/v1/responses`
+and `/v1/messages`, with streaming. Requests are not saved to the archive.
+
+- **Models:** the model named in a request loads on first use and replaces the
+  one in memory, whose VRAM is freed first. `GET /v1/models` marks the loaded
+  one with `"loaded": true`.
+- **Memory:** a model stays loaded until another is requested. Free it with
+  `POST /v1/models/unload` or **Eject**, or let ThreadShelf unload it after an
+  idle time (**Unload model from memory**, default: never).
+- **Access:** like LM Studio and Ollama, the API is open to programs on this
+  computer with no key. Optional settings add an API key (required on every
+  request once set), a network port that serves only `/v1` to other devices,
+  and an off switch.
+
+**Settings → Conversation generation → Local model API** shows the URL, your
+model ids, copyable examples and those settings. Its **Guide** explains what is
+on right now, every setting in plain words, and how to connect Claude Code,
+Codex CLI or DeepSeek Harness. Details: [Local model API](docs/LOCAL_API.md);
+speeds and tuning: [Performance](docs/PERFORMANCE.md).
 
 ### Guided setup: runtime and model in one confirmation
 
@@ -563,7 +593,7 @@ Generation configuration, created-chat storage, eject, and chat endpoints are
 loopback-only even when the read/search UI is exposed with `HOST` and
 `ALLOWED_HOSTS`. Full setup, persistence semantics, routing controls, runtime
 diagnostics, and API examples are documented in
-[Experimental Generation](docs/GENERATION_BETA.md).
+[Conversation generation](docs/GENERATION.md).
 
 ## Archive insights
 
@@ -660,8 +690,8 @@ CI runs the full gate on Linux and lightweight core checks on Windows.
   should still be validated against your own data before relying on exact stats.
 - Undocumented provider formats can change without notice; keep small
   anonymized fixtures for any real export shape that breaks parsing.
-- Conversation generation is **Experimental Beta**; archive indexing and search
-  do not depend on it.
+- Conversation generation is optional; archive indexing and search do not
+  depend on it.
 - ThreadShelf is a single-user local application. The HTTP API has no user
   accounts or authentication and should remain bound to loopback unless it is
   placed on a trusted network with deliberate host configuration.
@@ -703,7 +733,7 @@ Missing Playwright browsers? `npx playwright install chromium`.
 | `CHUNK_MAX_CHARS`                         | `2000`                             | Max characters per embedded chunk.                                    |
 | `CHUNK_OVERLAP_CHARS`                     | `100`                              | Overlap between long chunks.                                          |
 | `EMBED_BATCH_SIZE`                        | `25`                               | Embedding batch size during ingest.                                   |
-| `GENERATION_CONFIG_PATH`                  | _(data dir)_                       | Non-secret Experimental Beta generation settings.                     |
+| `GENERATION_CONFIG_PATH`                  | _(data dir)_                       | Non-secret generation settings.                                       |
 | `MASTER_PROMPTS_PATH`                     | _(data dir)_                       | Saved master (system) prompts.                                        |
 | `LLAMA_CPP_SERVER`                        | _(auto)_                           | Absolute path to an existing `llama-server` executable.               |
 | `LLAMA_CPP_BASE_URL`                      | _(empty)_                          | Existing loopback-only llama.cpp server URL.                          |
@@ -715,6 +745,8 @@ Missing Playwright browsers? `npx playwright install chromium`.
 | `LLAMA_CPP_TENSOR_SPLIT`                  | _(empty)_                          | Optional multi-GPU proportions, e.g. `3,1`.                           |
 | `LLAMA_CPP_THREADS`                       | `-1`                               | CPU generation threads; `-1` lets llama.cpp choose.                   |
 | `LLAMA_CPP_FLASH_ATTENTION`               | `auto`                             | Flash Attention: `auto`, `on`, or `off`.                              |
+| `LLAMA_CPP_IDLE_UNLOAD_MINUTES`           | `0`                                | Unload the local model after this many idle minutes; `0` = never.     |
+| `THREADSHELF_API_KEY`                     | _(empty)_                          | Key required by the local model API (`/v1`); overrides Settings.      |
 | `LLAMA_MODEL_PATHS`                       | _(defaults)_                       | Extra model roots (`;` on Windows, `:` on macOS/Linux).               |
 | `THREADSHELF_TOOLS_PATH`                  | _(data dir)_                       | llama.cpp discovery/installer root.                                   |
 | `THREADSHELF_MODELS_PATH`                 | _(data dir)_                       | Catalog download root; always searched for models.                    |
@@ -733,7 +765,9 @@ described in [Quick Start](#quick-start); setting one explicitly still wins.
 For LAN access, bind to the interface you need and allow the exact browser host,
 for example `HOST=0.0.0.0 ALLOWED_HOSTS=192.168.1.50,my-pc.local`. Without
 `ALLOWED_HOSTS`, API requests from other machines are rejected by Host/Origin
-checks.
+checks. To share only your local models, not the archive, use **Serve on the
+local network** in the Local model API settings instead; see
+[Network access](docs/LOCAL_API.md#network-access).
 
 ## Documentation
 
@@ -741,7 +775,9 @@ checks.
 - [Architecture](docs/ARCHITECTURE.md) — data flow, modules, storage, API.
 - [MCP Setup](docs/MCP.md) — run the stdio MCP server and what it exposes.
 - [OpenRouter Export](docs/OPENROUTER.md) — the browser export flow + limitations.
-- [Experimental Generation](docs/GENERATION_BETA.md) — llama.cpp/OpenRouter setup, privacy, and API.
+- [Conversation generation](docs/GENERATION.md) — llama.cpp/OpenRouter setup, privacy, and API.
+- [Local model API](docs/LOCAL_API.md) — OpenAI/Anthropic-compatible `/v1` endpoints for other apps.
+- [Performance](docs/PERFORMANCE.md) — measured speeds, recommended settings, and how to benchmark.
 - [Real Data Testing](docs/REAL_DATA_TESTING.md) — validate private exports safely.
 - [FAQ](docs/FAQ.md) — common questions.
 - [Changelog](CHANGELOG.md) — release highlights.
@@ -750,7 +786,7 @@ checks.
 ## Privacy boundary
 
 Indexing, embeddings, storage, search, MCP, and llama.cpp inference are local.
-The explicitly selected **Experimental Beta OpenRouter generation is not
+The explicitly selected **OpenRouter generation is not
 local**: it sends the selected archive or ThreadShelf chat's user/assistant
 history and prompt to OpenRouter and
 the routed provider. Two other surfaces reach the network but never carry

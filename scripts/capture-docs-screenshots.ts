@@ -151,7 +151,6 @@ async function captureGeneration(page: Page, baseUrl: string, outputName: string
       contentType: 'application/json',
       body: JSON.stringify({
         config: {
-          experimentalAlpha: true,
           llamaCpp: {
             modelDirectories: [],
             defaultModelDirectories: [],

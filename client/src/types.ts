@@ -243,6 +243,25 @@ export interface GenerationModelsResponse {
   readonly runtime: GenerationRuntimeStatus;
 }
 
+/** One entry of `GET /v1/models`, ThreadShelf's OpenAI-compatible local API. */
+export interface LocalApiModel {
+  readonly id: string;
+  readonly object: 'model';
+  readonly owned_by: string;
+  readonly loaded: boolean;
+}
+
+export interface LocalApiStatus {
+  readonly models: readonly LocalApiModel[] | null;
+  readonly modelsError?: string;
+  readonly network: {
+    readonly state: 'off' | 'listening' | 'error';
+    readonly port?: number;
+    readonly urls: readonly string[];
+    readonly error?: string;
+  };
+}
+
 export interface GenerationRuntimeResponse {
   readonly backend: 'llama.cpp';
   readonly runtime: GenerationRuntimeStatus;
@@ -424,7 +443,6 @@ export interface LlamaRuntimeProfileEntry {
 }
 
 export interface GenerationConfig {
-  readonly experimentalAlpha: true;
   readonly llamaCpp: {
     readonly executablePath?: string;
     readonly baseUrl?: string;
@@ -441,12 +459,20 @@ export interface GenerationConfig {
     readonly kvCache?: LlamaKvCacheProfile;
     readonly speculative?: LlamaSpeculativeMode;
     readonly reasoningEffort?: LlamaReasoningEffort;
+    readonly idleUnloadMinutes?: number;
   };
   readonly openRouter: {
     readonly baseUrl: string;
     readonly apiKeyConfigured: boolean;
     readonly enforceZdr: boolean;
     readonly denyDataCollection: boolean;
+  };
+  readonly localApi?: {
+    readonly enabled: boolean;
+    readonly apiKeyConfigured: boolean;
+    readonly apiKeySource: 'none' | 'settings' | 'env';
+    readonly networkAccess: boolean;
+    readonly networkPort: number;
   };
   readonly diagnostics: {
     readonly persistErrorLogs: boolean;

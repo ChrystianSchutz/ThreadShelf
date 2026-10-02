@@ -26,6 +26,8 @@ export interface LlamaCppConfig {
   readonly kvCache: LlamaKvCacheProfile;
   readonly speculative: LlamaSpeculativeMode;
   readonly reasoningEffort: LlamaReasoningEffort;
+  /** Unload the managed model after this many idle minutes; 0 keeps it loaded. */
+  readonly idleUnloadMinutes: number;
 }
 
 export type LlamaAccelerationMode = 'auto' | 'cpu' | 'gpu' | 'hybrid' | 'multi-gpu';
@@ -55,10 +57,21 @@ export interface OpenRouterConfig {
   readonly denyDataCollection: boolean;
 }
 
+/** The OpenAI/Anthropic-compatible API at `/v1`. The key itself is never returned. */
+export interface LocalApiConfig {
+  readonly enabled: boolean;
+  readonly apiKeyConfigured: boolean;
+  /** `env` when THREADSHELF_API_KEY supplies the key; the saved key is then ignored. */
+  readonly apiKeySource: 'none' | 'settings' | 'env';
+  /** Also serve `/v1` (and only `/v1`) to other machines on `networkPort`. */
+  readonly networkAccess: boolean;
+  readonly networkPort: number;
+}
+
 export interface PublicGenerationConfig {
-  readonly experimentalAlpha: true;
   readonly llamaCpp: LlamaCppConfig;
   readonly openRouter: OpenRouterConfig;
+  readonly localApi: LocalApiConfig;
   readonly diagnostics: { readonly persistErrorLogs: boolean };
 }
 
@@ -80,10 +93,17 @@ interface StoredGenerationConfig {
     readonly kvCache?: LlamaKvCacheProfile;
     readonly speculative?: LlamaSpeculativeMode;
     readonly reasoningEffort?: LlamaReasoningEffort;
+    readonly idleUnloadMinutes?: number;
   };
   readonly openRouter?: {
     readonly enforceZdr?: boolean;
     readonly denyDataCollection?: boolean;
+  };
+  readonly localApi?: {
+    readonly enabled?: boolean;
+    readonly apiKey?: string;
+    readonly networkAccess?: boolean;
+    readonly networkPort?: number;
   };
   readonly diagnostics?: { readonly persistErrorLogs?: boolean };
 }
@@ -105,6 +125,7 @@ export interface GenerationConfigUpdate {
     readonly kvCache?: unknown;
     readonly speculative?: unknown;
     readonly reasoningEffort?: unknown;
+    readonly idleUnloadMinutes?: unknown;
   };
   readonly openRouter?: {
     readonly apiKey?: unknown;
@@ -112,10 +133,19 @@ export interface GenerationConfigUpdate {
     readonly enforceZdr?: unknown;
     readonly denyDataCollection?: unknown;
   };
+  readonly localApi?: {
+    readonly enabled?: unknown;
+    readonly apiKey?: unknown;
+    readonly clearApiKey?: unknown;
+    readonly networkAccess?: unknown;
+    readonly networkPort?: unknown;
+  };
   readonly diagnostics?: { readonly persistErrorLogs?: unknown };
 }
 
 let sessionOpenRouterApiKey = '';
+export const DEFAULT_LOCAL_API_NETWORK_PORT = 3001;
+export const MAX_IDLE_UNLOAD_MINUTES = 7 * 24 * 60;
 const warnedInvalidEnvironmentValues = new Set<string>();
 
 export const generationConfigPath = (): string =>
@@ -288,6 +318,33 @@ export const clearSessionOpenRouterApiKeyForTests = (): void => {
   sessionOpenRouterApiKey = '';
 };
 
+/** Keys travel in HTTP headers, so only visible ASCII without spaces is accepted. */
+const parseLocalApiKey = (value: unknown): string => {
+  if (typeof value !== 'string' || value.length > 512 || !/^[\x21-\x7e]*$/.test(value.trim())) {
+    throw new ValidationError('Invalid local API key: use up to 512 visible ASCII characters', {
+      field: 'apiKey',
+    });
+  }
+  return value.trim();
+};
+
+const environmentLocalApiKey = (): string => (process.env.THREADSHELF_API_KEY || '').trim();
+
+/**
+ * What the `/v1` access check needs, including the key the public config hides.
+ * An empty key means no key is required, as in LM Studio and Ollama.
+ */
+export const getLocalApiAccess = async (): Promise<{
+  readonly enabled: boolean;
+  readonly apiKey: string;
+}> => {
+  const stored = await readStoredConfig();
+  return {
+    enabled: stored.localApi?.enabled ?? true,
+    apiKey: environmentLocalApiKey() || stored.localApi?.apiKey || '',
+  };
+};
+
 const parseEnvironmentOverride = <T>(
   name: string,
   parser: (value: string) => T | undefined,
@@ -315,15 +372,17 @@ export const effectiveModelDirectories = (config: LlamaCppConfig): string[] =>
     ...config.defaultModelDirectories,
   ]);
 
+/** True when the change needs llama-server restarted; the idle timeout does not. */
 export const llamaCppConfigChanged = (
   previous: PublicGenerationConfig,
   next: PublicGenerationConfig,
-): boolean => JSON.stringify(previous.llamaCpp) !== JSON.stringify(next.llamaCpp);
+): boolean =>
+  JSON.stringify({ ...previous.llamaCpp, idleUnloadMinutes: undefined }) !==
+  JSON.stringify({ ...next.llamaCpp, idleUnloadMinutes: undefined });
 
 export const getGenerationConfig = async (): Promise<PublicGenerationConfig> => {
   const stored = await readStoredConfig();
   return {
-    experimentalAlpha: true,
     llamaCpp: {
       executablePath:
         process.env.LLAMA_CPP_SERVER ||
@@ -405,6 +464,12 @@ export const getGenerationConfig = async (): Promise<PublicGenerationConfig> => 
         ) ??
         stored.llamaCpp?.reasoningEffort ??
         'medium',
+      idleUnloadMinutes:
+        parseEnvironmentOverride('LLAMA_CPP_IDLE_UNLOAD_MINUTES', (value) =>
+          parseInteger(Number(value), 'LLAMA_CPP_IDLE_UNLOAD_MINUTES', 0, MAX_IDLE_UNLOAD_MINUTES),
+        ) ??
+        stored.llamaCpp?.idleUnloadMinutes ??
+        0,
     },
     openRouter: {
       baseUrl: (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(
@@ -415,6 +480,17 @@ export const getGenerationConfig = async (): Promise<PublicGenerationConfig> => 
       enforceZdr: stored.schemaVersion === 2 ? (stored.openRouter?.enforceZdr ?? false) : false,
       denyDataCollection:
         stored.schemaVersion === 2 ? (stored.openRouter?.denyDataCollection ?? false) : false,
+    },
+    localApi: {
+      enabled: stored.localApi?.enabled ?? true,
+      apiKeyConfigured: Boolean(environmentLocalApiKey() || stored.localApi?.apiKey),
+      apiKeySource: environmentLocalApiKey()
+        ? 'env'
+        : stored.localApi?.apiKey
+          ? 'settings'
+          : 'none',
+      networkAccess: stored.localApi?.networkAccess ?? false,
+      networkPort: stored.localApi?.networkPort ?? DEFAULT_LOCAL_API_NETWORK_PORT,
     },
     diagnostics: {
       persistErrorLogs:
@@ -433,6 +509,13 @@ export const updateGenerationConfig = async (
   const llamaUpdate = update.llamaCpp;
   const openRouterUpdate = update.openRouter;
   const diagnosticsUpdate = update.diagnostics;
+  const localApiUpdate = update.localApi;
+  if (
+    localApiUpdate !== undefined &&
+    (typeof localApiUpdate !== 'object' || Array.isArray(localApiUpdate))
+  ) {
+    throw new ValidationError('Invalid localApi config', { field: 'localApi' });
+  }
   if (
     llamaUpdate !== undefined &&
     (typeof llamaUpdate !== 'object' || Array.isArray(llamaUpdate))
@@ -465,6 +548,15 @@ export const updateGenerationConfig = async (
   }
   const clearApiKey = parseBoolean(openRouterUpdate?.clearApiKey, 'clearApiKey');
   if (clearApiKey === true) nextSessionOpenRouterApiKey = '';
+
+  // An omitted or empty key keeps the saved one; only clearApiKey removes it.
+  let localApiKey = current.localApi?.apiKey;
+  if (localApiUpdate?.apiKey !== undefined) {
+    localApiKey = parseLocalApiKey(localApiUpdate.apiKey) || localApiKey;
+  }
+  if (parseBoolean(localApiUpdate?.clearApiKey, 'clearApiKey') === true) {
+    localApiKey = undefined;
+  }
 
   const next: StoredGenerationConfig = {
     schemaVersion: 2,
@@ -525,6 +617,15 @@ export const updateGenerationConfig = async (
         parseEnum(llamaUpdate?.reasoningEffort, REASONING_EFFORTS, 'reasoningEffort') ??
         current.llamaCpp?.reasoningEffort ??
         'medium',
+      idleUnloadMinutes:
+        parseInteger(
+          llamaUpdate?.idleUnloadMinutes,
+          'idleUnloadMinutes',
+          0,
+          MAX_IDLE_UNLOAD_MINUTES,
+        ) ??
+        current.llamaCpp?.idleUnloadMinutes ??
+        0,
     },
     openRouter: {
       enforceZdr:
@@ -535,6 +636,19 @@ export const updateGenerationConfig = async (
         parseBoolean(openRouterUpdate?.denyDataCollection, 'denyDataCollection') ??
         (current.schemaVersion === 2 ? current.openRouter?.denyDataCollection : undefined) ??
         false,
+    },
+    localApi: {
+      enabled:
+        parseBoolean(localApiUpdate?.enabled, 'enabled') ?? current.localApi?.enabled ?? true,
+      apiKey: localApiKey,
+      networkAccess:
+        parseBoolean(localApiUpdate?.networkAccess, 'networkAccess') ??
+        current.localApi?.networkAccess ??
+        false,
+      networkPort:
+        parseInteger(localApiUpdate?.networkPort, 'networkPort', 1, 65_535) ??
+        current.localApi?.networkPort ??
+        DEFAULT_LOCAL_API_NETWORK_PORT,
     },
     diagnostics: {
       persistErrorLogs:

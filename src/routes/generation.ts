@@ -10,9 +10,13 @@ import {
   getManagedLlamaStatus,
   getLlamaRuntimeDiagnostics,
   LlamaModelBusyError,
+  scheduleLlamaIdleUnload,
   stopManagedLlamaServer,
   withLlamaRuntimeControl,
 } from '../generation/llama-process.js';
+import { listLocalApiModels } from '../generation/local-api.js';
+import { getLocalApiNetworkStatus, syncLocalApiNetworkListener } from '../local-api-network.js';
+import { openAiModel } from './local-api.js';
 import {
   createMasterPrompt,
   deleteMasterPrompt,
@@ -116,6 +120,8 @@ router.put('/api/generation/config', requireLoopback, async (req, res) => {
       const previous = await getGenerationConfig();
       const config = await updateGenerationConfig(req.body);
       if (llamaCppConfigChanged(previous, config)) await stopManagedLlamaServer();
+      else void scheduleLlamaIdleUnload();
+      await syncLocalApiNetworkListener();
       const statuses = await Promise.all(
         listGenerationProviders().map((provider) => provider.status()),
       );
@@ -124,6 +130,23 @@ router.put('/api/generation/config', requireLoopback, async (req, res) => {
     const result =
       req.body?.llamaCpp === undefined ? await update() : await withLlamaRuntimeControl(update);
     res.json(result);
+  } catch (error) {
+    errorResponse(res, error);
+  }
+});
+
+// The settings page's view of /v1. It reaches the model list through /api, so
+// it keeps working when the API requires a key or is turned off.
+router.get('/api/generation/local-api', requireLoopback, async (_req, res) => {
+  try {
+    let models: ReturnType<typeof openAiModel>[] | null = null;
+    let modelsError: string | undefined;
+    try {
+      models = (await listLocalApiModels()).map(openAiModel);
+    } catch (error) {
+      modelsError = error instanceof Error ? error.message : 'Could not list local models';
+    }
+    res.json({ models, modelsError, network: getLocalApiNetworkStatus() });
   } catch (error) {
     errorResponse(res, error);
   }

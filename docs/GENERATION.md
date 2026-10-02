@@ -1,6 +1,6 @@
-# Experimental Beta: conversation generation
+# Conversation generation
 
-Conversation generation is an opt-in **Experimental Beta**. It adds a plugin
+Conversation generation is optional. It adds a plugin
 contract above two engines:
 
 - `llama.cpp`, the primary and local engine;
@@ -303,6 +303,9 @@ only the `apiKeyConfigured` boolean. Restart the server after editing `.env`.
 When no existing llama.cpp URL is configured, ThreadShelf launches one managed
 `llama-server` for the selected GGUF file, binds it to `127.0.0.1` on an ephemeral
 port, waits for health, and stops it when switching models or stopping the app.
+Switching waits for the old process to exit, so its VRAM is free before the next
+model loads. **Unload model from memory** can also stop an unused model after an
+idle time (default: never).
 The executable name is restricted to `llama-server` (`llama-server.exe` on
 Windows), and selected models must come from configured discovery roots.
 
@@ -364,10 +367,12 @@ logged instead of preventing startup:
 - `--parallel 1` is always passed when supported: a local single-user server
   should not split memory across idle slots. Concurrent chats on one model queue.
 
-Context presets label 32K as recommended for 24 GB GPUs and 128K/262K as
-experimental; sizes above 64K show a warning because current CUDA builds have
-reported severe decode slowdowns at very long positions. Environment overrides:
-`LLAMA_CPP_KV_CACHE`, `LLAMA_CPP_SPECULATIVE`, `LLAMA_CPP_REASONING_EFFORT`.
+Context presets label 32K as recommended for 24 GB GPUs. Sizes above 64K work
+(up to a model's native window) but show a note: generation slows as the context
+fills and the KV cache needs much more VRAM, so use the Q4 Memory saver cache on
+24 GB GPUs. Measured speeds for each size are in [Performance](PERFORMANCE.md).
+Environment overrides: `LLAMA_CPP_KV_CACHE`, `LLAMA_CPP_SPECULATIVE`,
+`LLAMA_CPP_REASONING_EFFORT`, `LLAMA_CPP_IDLE_UNLOAD_MINUTES`.
 
 The launch log contains a resolved profile line, for example:
 
@@ -451,7 +456,11 @@ prompt**. They disappear when the tab session ends.
 
 ## HTTP API
 
-All routes are **Experimental Beta**:
+To use the local models from other apps through the OpenAI or Anthropic API,
+the way you would with LM Studio or Ollama, see
+[Local model API](LOCAL_API.md). The routes below are ThreadShelf's own UI API.
+
+All routes are loopback only:
 
 - `GET /api/generation/hardware` — detected accelerators, RAM, and model budget;
 - `GET /api/generation/catalog/search?q=&sort=downloads|likes|trending|recent&limit=&author=` — Hugging Face GGUF search plus the hardware profile;
@@ -460,7 +469,9 @@ All routes are **Experimental Beta**:
 - `GET /api/generation/setup/plan?variant=&model=&quant=` — the resolved one-click plan and its fingerprint;
 - `POST /api/generation/setup/run` — runs a plan; requires `confirm: true` and the approved `fingerprint`, returns `409` with a new plan on mismatch;
 - `GET /api/generation/config` — redacted settings and provider availability;
-- `PUT /api/generation/config` — update paths, privacy flags, and a session key;
+- `PUT /api/generation/config` — update paths, privacy flags, a session key, the idle
+  unload time and the local model API settings (`localApi`);
+- `GET /api/generation/local-api` — local model API model list and network listener status;
 - `GET /api/generation/models?provider=llama-cpp|openrouter` — dynamic models and runtime state;
 - `GET /api/generation/runtime` — current backend and loaded model;
 - `GET /api/generation/runtime/logs` — localhost-only llama.cpp process/device diagnostics;
@@ -533,7 +544,7 @@ The route reloads the indexed thread on the server and validates that the source
 belongs to the selected collection. Request size, message count, temperature,
 token count, paths, and provider IDs are bounded.
 
-## Known Beta limitations
+## Known limitations
 
 - One managed local model is active at a time; a different model cannot load until
   all active chats using the current model finish.

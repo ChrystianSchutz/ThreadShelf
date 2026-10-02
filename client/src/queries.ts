@@ -58,6 +58,16 @@ export const useFilesQuery = (collection: string, enabled: boolean) => {
   });
 };
 
+export const LOCAL_API_STATUS_KEY = ['local-api-status'] as const;
+
+export const useLocalApiStatusQuery = () => {
+  return useQuery({
+    queryKey: LOCAL_API_STATUS_KEY,
+    queryFn: ({ signal }) => api.localApiStatus(signal),
+    staleTime: 30_000,
+  });
+};
+
 export const useGenerationThreadsQuery = () => {
   return useQuery({
     queryKey: ['generation-threads'],

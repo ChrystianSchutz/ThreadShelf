@@ -49,33 +49,37 @@ const RELEASE = {
 const MODEL_FILE = 'Tiny-Q4_K_M.gguf';
 const MODEL_BYTES = 2048;
 
-const catalogFetch = (digest = 'd'.repeat(64), bytes = MODEL_BYTES) => async (url) => {
-  const href = String(url);
-  if (href.includes('/releases/')) return jsonResponse(RELEASE);
-  if (href.includes('/tree/main')) {
-    return jsonResponse([
-      {
-        type: 'file',
-        path: MODEL_FILE,
-        size: bytes,
-        lfs: { oid: digest, size: bytes },
-      },
-    ]);
-  }
-  if (href.includes('/api/models?')) {
-    return jsonResponse([
-      { id: 'unsloth/Tiny-GGUF', downloads: 10, likes: 1, gated: false },
-    ]);
-  }
-  return jsonResponse({ id: 'unsloth/Tiny-GGUF', downloads: 10, gated: false });
-};
+const catalogFetch =
+  (digest = 'd'.repeat(64), bytes = MODEL_BYTES) =>
+  async (url) => {
+    const href = String(url);
+    if (href.includes('/releases/')) return jsonResponse(RELEASE);
+    if (href.includes('/tree/main')) {
+      return jsonResponse([
+        {
+          type: 'file',
+          path: MODEL_FILE,
+          size: bytes,
+          lfs: { oid: digest, size: bytes },
+        },
+      ]);
+    }
+    if (href.includes('/api/models?')) {
+      return jsonResponse([{ id: 'unsloth/Tiny-GGUF', downloads: 10, likes: 1, gated: false }]);
+    }
+    return jsonResponse({ id: 'unsloth/Tiny-GGUF', downloads: 10, gated: false });
+  };
 
 let root;
 const originalEnv = {};
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'threadshelf-quicksetup-'));
-  for (const key of ['THREADSHELF_MODELS_PATH', 'THREADSHELF_TOOLS_PATH', 'GENERATION_CONFIG_PATH']) {
+  for (const key of [
+    'THREADSHELF_MODELS_PATH',
+    'THREADSHELF_TOOLS_PATH',
+    'GENERATION_CONFIG_PATH',
+  ]) {
     originalEnv[key] = process.env[key];
   }
   process.env.THREADSHELF_MODELS_PATH = join(root, 'models');
@@ -97,7 +101,7 @@ describe('streamed-work cancellation', () => {
     // A browser cancelling a fetch closes the response; `req`'s `aborted` event
     // never fires. Listening only to the latter left downloads running after the
     // user pressed Cancel.
-    const req = new EventEmitter();
+    const req = Object.assign(new EventEmitter(), { socket: { destroyed: false } });
     const res = Object.assign(new EventEmitter(), { writableEnded: false });
     const controller = abortOnDisconnect(req, res, 'Download cancelled');
 
@@ -109,7 +113,7 @@ describe('streamed-work cancellation', () => {
   });
 
   it('still aborts on a dropped request', () => {
-    const req = new EventEmitter();
+    const req = Object.assign(new EventEmitter(), { socket: { destroyed: false } });
     const res = Object.assign(new EventEmitter(), { writableEnded: false });
     const controller = abortOnDisconnect(req, res);
     req.emit('aborted');
@@ -117,11 +121,22 @@ describe('streamed-work cancellation', () => {
   });
 
   it('does not abort when the response finished normally', () => {
-    const req = new EventEmitter();
+    const req = Object.assign(new EventEmitter(), { socket: { destroyed: false } });
     const res = Object.assign(new EventEmitter(), { writableEnded: true });
     const controller = abortOnDisconnect(req, res);
     res.emit('close');
     assert.strictEqual(controller.signal.aborted, false);
+  });
+
+  it('recognizes a connection closed before cancellation listeners were attached', () => {
+    for (const state of ['request', 'response', 'socket']) {
+      const req = Object.assign(new EventEmitter(), {
+        aborted: state === 'request',
+        socket: { destroyed: state === 'socket' },
+      });
+      const res = Object.assign(new EventEmitter(), { destroyed: state === 'response' });
+      assert.strictEqual(abortOnDisconnect(req, res).signal.aborted, true, state);
+    }
   });
 });
 

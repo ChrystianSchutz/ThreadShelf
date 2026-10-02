@@ -53,7 +53,7 @@ export const parseArguments = (args: readonly string[]): Arguments => {
 };
 
 const usage = (): void => {
-  console.log(`ThreadShelf llama.cpp setup — EXPERIMENTAL BETA
+  console.log(`ThreadShelf llama.cpp setup
 
 With no arguments this command only searches for an existing llama-server.
 It never downloads or installs unless you explicitly pass --install or --url.

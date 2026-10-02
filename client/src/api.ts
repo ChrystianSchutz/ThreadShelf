@@ -11,6 +11,7 @@ import type {
   GenerationProviderId,
   GenerationResponse,
   GenerationRuntimeResponse,
+  LocalApiStatus,
   LlamaRuntimeDiagnostics,
   GenerationStreamEvent,
   MasterPromptCollection,
@@ -139,6 +140,11 @@ export const api = {
       if (signal?.aborted) throw e; // caller cancelled — not a failed ping
       return false;
     }
+  },
+
+  /** Models and network listener of the local API at /v1, read through /api so no key is needed. */
+  localApiStatus(signal?: AbortSignal) {
+    return request<LocalApiStatus>('/api/generation/local-api', { signal });
   },
 
   collections(signal?: AbortSignal) {
@@ -315,12 +321,20 @@ export const api = {
       readonly kvCache?: 'default' | 'quality' | 'memory';
       readonly speculative?: 'off' | 'auto' | 'aggressive';
       readonly reasoningEffort?: 'default' | 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+      readonly idleUnloadMinutes?: number;
     };
     readonly openRouter?: {
       readonly apiKey?: string;
       readonly clearApiKey?: boolean;
       readonly enforceZdr?: boolean;
       readonly denyDataCollection?: boolean;
+    };
+    readonly localApi?: {
+      readonly enabled?: boolean;
+      readonly apiKey?: string;
+      readonly clearApiKey?: boolean;
+      readonly networkAccess?: boolean;
+      readonly networkPort?: number;
     };
     readonly diagnostics?: {
       readonly persistErrorLogs?: boolean;

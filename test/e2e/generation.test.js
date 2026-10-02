@@ -98,7 +98,7 @@ describe('generation API E2E', () => {
         let response = await fetch(`${ctx.baseUrl}/api/generation/config`);
         assert.strictEqual(response.ok, true);
         let config = await response.json();
-        assert.strictEqual(config.config.experimentalAlpha, true);
+        assert.strictEqual('experimentalAlpha' in config.config, false);
         assert.strictEqual(config.config.openRouter.apiKeyConfigured, false);
         assert.strictEqual(JSON.stringify(config).includes('session-secret'), false);
 

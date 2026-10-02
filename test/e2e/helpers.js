@@ -34,8 +34,12 @@ export const startApiServer = async ({
       MASTER_PROMPTS_PATH: join(tempRoot, 'master-prompts.json'),
       THREADSHELF_DISABLE_DEFAULT_MODEL_PATHS: '1',
       THREADSHELF_TOOLS_PATH: join(tempRoot, 'tools'),
+      // The download directory is always scanned, so a developer's models would leak in.
+      THREADSHELF_MODELS_PATH: join(tempRoot, 'models'),
       // Never let a developer's private .env key affect isolated tests.
       OPENROUTER_API_KEY: '',
+      // A developer's local API key would lock /v1 in every test.
+      THREADSHELF_API_KEY: '',
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],

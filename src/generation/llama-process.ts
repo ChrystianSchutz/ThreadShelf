@@ -41,10 +41,13 @@ let runtimeRevision = 0;
 let activeChatModel: string | null = null;
 let activeChatCount = 0;
 let runtimeControlActive = false;
+let idleTimer: NodeJS.Timeout | null = null;
 const capabilityCache = new Map<string, Promise<LlamaRuntimeCapabilities>>();
 const deviceCache = new Map<string, Promise<LlamaDeviceInspection>>();
 const MAX_RUNTIME_LOG_BYTES = 4 * 1024 * 1024;
 const MAX_CHAT_ERROR_LOG_CHARS = 12_000;
+// Tests shorten the idle-unload minute; nothing else should set this.
+const IDLE_MINUTE_MS = Number(process.env.THREADSHELF_IDLE_MINUTE_MS) || 60_000;
 
 export interface LlamaDeviceInspection {
   readonly supported: boolean;
@@ -324,27 +327,72 @@ const waitForReady = async (server: ManagedServer): Promise<void> => {
   throw new Error(`llama-server did not become ready within 180 seconds\n${server.logs}`);
 };
 
+/**
+ * Stops llama-server and resolves once the process has exited, so its VRAM is
+ * free before another model is spawned. A process that ignores SIGTERM for 5 s
+ * is killed; waiting for that exit too is bounded, since a process stuck in
+ * the driver may never report one.
+ */
 const stopChild = async (server: ManagedServer): Promise<void> => {
-  if (server.child.exitCode !== null) return;
+  const { child } = server;
+  if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolveStop) => {
-    const timeout = setTimeout(() => {
-      server.child.kill('SIGKILL');
-      resolveStop();
+    let killTimeout: NodeJS.Timeout | undefined;
+    const termTimeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      killTimeout = setTimeout(resolveStop, 5_000);
+      killTimeout.unref();
     }, 5_000);
-    timeout.unref();
-    server.child.once('exit', () => {
-      clearTimeout(timeout);
+    termTimeout.unref();
+    child.once('exit', () => {
+      clearTimeout(termTimeout);
+      if (killTimeout) clearTimeout(killTimeout);
       resolveStop();
     });
-    server.child.kill('SIGTERM');
+    child.kill('SIGTERM');
   });
 };
 
+const clearIdleTimer = (): void => {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
+};
+
 const stopCurrentLlamaServer = async (): Promise<void> => {
+  clearIdleTimer();
   const current = managed;
   managed = null;
   if (current) await stopChild(current);
 };
+
+/**
+ * Arms the idle unload for the loaded model, like Ollama's keep_alive: once no
+ * request has used it for `idleUnloadMinutes`, llama-server is stopped and its
+ * memory freed. The next request loads it again. Called whenever the runtime
+ * goes idle and when the setting changes.
+ */
+export const scheduleLlamaIdleUnload = async (): Promise<void> => {
+  clearIdleTimer();
+  const server = managed;
+  if (!server || activeChatCount > 0) return;
+  const minutes = (await getGenerationConfig().catch(() => null))?.llamaCpp.idleUnloadMinutes ?? 0;
+  // A request may have started, or the model changed, while the config was read.
+  if (!minutes || managed !== server || activeChatCount > 0) return;
+  clearIdleTimer();
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    if (managed !== server || activeChatCount > 0 || runtimeControlActive || transition) return;
+    appendLogText(server, `[ThreadShelf] Unloading after ${minutes} min without requests.\n`);
+    void withLlamaRuntimeControl(stopManagedLlamaServer).catch((error: unknown) => {
+      console.error('[llama.cpp] Idle unload failed', error);
+    });
+  }, minutes * IDLE_MINUTE_MS);
+  idleTimer.unref();
+};
+
+/** Path of the GGUF the managed llama-server has loaded or is loading. */
+export const getLoadedLlamaModel = (): string | undefined =>
+  managed && managed.child.exitCode === null ? managed.model : undefined;
 
 export const stopManagedLlamaServer = async (): Promise<void> => {
   assertLlamaModelIdle();
@@ -366,6 +414,9 @@ export const withLlamaRuntimeControl = async <T>(operation: () => Promise<T>): P
     return await operation();
   } finally {
     runtimeControlActive = false;
+    // An idle timer may have expired while a lookup or settings operation held
+    // control. Rearm it if that operation left a model loaded.
+    void scheduleLlamaIdleUnload();
   }
 };
 
@@ -644,11 +695,15 @@ export const withLlamaModelLease = async <T>(
   }
   activeChatModel = normalizedModel;
   activeChatCount += 1;
+  clearIdleTimer();
   try {
     return await operation();
   } finally {
     activeChatCount -= 1;
-    if (activeChatCount === 0) activeChatModel = null;
+    if (activeChatCount === 0) {
+      activeChatModel = null;
+      void scheduleLlamaIdleUnload();
+    }
   }
 };
 

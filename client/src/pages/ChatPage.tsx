@@ -365,9 +365,6 @@ export function ChatPage() {
                 <button className="btn primary" onClick={() => startSavedChat()}>
                   {Icons.plus} New chat
                 </button>
-                <span className="chat-empty-alpha">
-                  {Icons.warn} Chat generation is experimental (alpha).
-                </span>
               </div>
             )}
             {(isPrivate || isDraft || chat) && (
