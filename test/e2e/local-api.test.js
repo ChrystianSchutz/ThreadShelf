@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { request } from 'node:http';
+import { createServer } from 'node:net';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,6 +27,69 @@ const rawGet = (baseUrl, path, headers) =>
     req.on('error', reject);
     req.end();
   });
+
+const freePort = () =>
+  new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+
+const putConfig = async (baseUrl, update) => {
+  const response = await fetch(`${baseUrl}/api/generation/config`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(update),
+  });
+  const body = await response.json();
+  assert.strictEqual(response.ok, true, JSON.stringify(body));
+  return body;
+};
+
+const waitFor = async (check, message, timeoutMs = 15_000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.fail(message);
+};
+
+/** A fake llama-server, two small GGUF files and a ThreadShelf server using them. */
+const startWithModels = async (prefix, env = {}) => {
+  const toolsRoot = await mkdtemp(join(tmpdir(), prefix));
+  const executable = await createFakeLlamaServer(join(toolsRoot, 'bin'));
+  const modelsDir = join(toolsRoot, 'models');
+  await mkdir(modelsDir, { recursive: true });
+  await writeFile(join(modelsDir, 'Alpha.Q4_K_M.gguf'), syntheticMtpModel(1));
+  await writeFile(join(modelsDir, 'Beta.Q8_0.gguf'), syntheticMtpModel(1));
+  const ctx = await startApiServer({ prefix, env: { LLAMA_CPP_SERVER: executable, ...env } });
+  await putConfig(ctx.baseUrl, { llamaCpp: { modelDirectories: [modelsDir] } });
+  return {
+    ...ctx,
+    v1: `${ctx.baseUrl}/v1`,
+    stop: async () => {
+      await ctx.stop();
+      await rm(toolsRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    },
+  };
+};
+
+const loadedIds = async (v1, headers = {}) => {
+  const response = await fetch(`${v1}/models`, { headers });
+  assert.strictEqual(response.status, 200);
+  return (await response.json()).data.filter((model) => model.loaded).map((model) => model.id);
+};
+
+const chat = (v1, model, headers = {}) =>
+  post(
+    `${v1}/chat/completions`,
+    { model, stream: false, messages: [{ role: 'user', content: 'hi' }] },
+    headers,
+  );
 
 describe('local model API (/v1) E2E', () => {
   it(
@@ -70,6 +134,7 @@ describe('local model API (/v1) E2E', () => {
           id: list.data[0].id,
           object: 'model',
           owned_by: 'threadshelf',
+          loaded: false,
         });
         assert.ok(!JSON.stringify(list).includes(modelsDir), 'model paths must not leak');
 
@@ -158,6 +223,303 @@ describe('local model API (/v1) E2E', () => {
       } finally {
         await ctx.stop();
         await rm(toolsRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      }
+    },
+  );
+
+  it(
+    'is open by default and requires the API key once one is set',
+    { timeout: 180_000, skip: fakeLlamaUnavailable() },
+    async () => {
+      const ctx = await startWithModels('threadshelf-local-api-key-');
+      try {
+        // Default: like LM Studio and Ollama, no key and any key are both accepted.
+        assert.strictEqual((await fetch(`${ctx.v1}/models`)).status, 200);
+        assert.strictEqual(
+          (await fetch(`${ctx.v1}/models`, { headers: { authorization: 'Bearer anything' } }))
+            .status,
+          200,
+        );
+
+        let body = await putConfig(ctx.baseUrl, { localApi: { apiKey: 'ts-test-key' } });
+        assert.strictEqual(body.config.localApi.apiKeyConfigured, true);
+        assert.strictEqual(body.config.localApi.apiKeySource, 'settings');
+        assert.ok(!JSON.stringify(body).includes('ts-test-key'), 'the key is never returned');
+
+        // Missing or wrong key: 401 in each SDK's own error shape.
+        let response = await fetch(`${ctx.v1}/models`);
+        assert.strictEqual(response.status, 401);
+        const error = (await response.json()).error;
+        assert.strictEqual(error.code, 'invalid_api_key');
+        assert.strictEqual(error.type, 'invalid_request_error');
+
+        response = await post(
+          `${ctx.v1}/messages`,
+          { model: 'Alpha.Q4_K_M' },
+          { 'x-api-key': 'no' },
+        );
+        assert.strictEqual(response.status, 401);
+        assert.strictEqual((await response.json()).error.type, 'authentication_error');
+
+        response = await chat(ctx.v1, 'Alpha.Q4_K_M', { authorization: 'Bearer ts-test-key2' });
+        assert.strictEqual(response.status, 401);
+        response = await chat(ctx.v1, 'Alpha.Q4_K_M', { authorization: 'Basic ts-test-key' });
+        assert.strictEqual(response.status, 401);
+
+        // OpenAI SDKs send a bearer token, Anthropic SDKs x-api-key.
+        response = await chat(ctx.v1, 'Alpha.Q4_K_M', { authorization: 'Bearer ts-test-key' });
+        assert.strictEqual(response.status, 200);
+        response = await chat(ctx.v1, 'Alpha.Q4_K_M', { authorization: 'bearer ts-test-key' });
+        assert.strictEqual(response.status, 200);
+        response = await post(
+          `${ctx.v1}/messages`,
+          { model: 'Alpha.Q4_K_M', messages: [] },
+          { 'x-api-key': 'ts-test-key' },
+        );
+        assert.strictEqual(response.status, 200);
+
+        // The key does not replace the browser boundary on the loopback port.
+        const port = new URL(ctx.baseUrl).port;
+        const raw = await rawGet(ctx.baseUrl, '/v1/models', {
+          host: `attacker.example:${port}`,
+          authorization: 'Bearer ts-test-key',
+        });
+        assert.strictEqual(raw.status, 403);
+
+        // The settings page still lists models without the key.
+        response = await fetch(`${ctx.baseUrl}/api/generation/local-api`);
+        assert.strictEqual(response.status, 200);
+        body = await response.json();
+        assert.deepStrictEqual(body.models.map((model) => model.id).sort(), [
+          'Alpha.Q4_K_M',
+          'Beta.Q8_0',
+        ]);
+        assert.deepStrictEqual(body.network, { state: 'off', urls: [] });
+
+        // Clearing the key opens the API again.
+        await putConfig(ctx.baseUrl, { localApi: { clearApiKey: true } });
+        assert.strictEqual((await fetch(`${ctx.v1}/models`)).status, 200);
+      } finally {
+        await ctx.stop();
+      }
+    },
+  );
+
+  it(
+    'takes its key from THREADSHELF_API_KEY',
+    { timeout: 180_000, skip: fakeLlamaUnavailable() },
+    async () => {
+      const ctx = await startWithModels('threadshelf-local-api-env-key-', {
+        THREADSHELF_API_KEY: 'env-key',
+      });
+      try {
+        const { config } = await (await fetch(`${ctx.baseUrl}/api/generation/config`)).json();
+        assert.strictEqual(config.localApi.apiKeySource, 'env');
+        assert.strictEqual((await fetch(`${ctx.v1}/models`)).status, 401);
+        const ok = await fetch(`${ctx.v1}/models`, { headers: { 'x-api-key': 'env-key' } });
+        assert.strictEqual(ok.status, 200);
+      } finally {
+        await ctx.stop();
+      }
+    },
+  );
+
+  it(
+    'can be turned off without affecting the app',
+    { timeout: 180_000, skip: fakeLlamaUnavailable() },
+    async () => {
+      const ctx = await startWithModels('threadshelf-local-api-off-');
+      try {
+        await putConfig(ctx.baseUrl, { localApi: { enabled: false } });
+        let response = await fetch(`${ctx.v1}/models`);
+        assert.strictEqual(response.status, 403);
+        assert.strictEqual((await response.json()).error.code, 'api_disabled');
+        response = await post(`${ctx.v1}/messages`, { model: 'Alpha.Q4_K_M' });
+        assert.strictEqual(response.status, 403);
+        assert.strictEqual((await response.json()).error.type, 'permission_error');
+        // The app's own API keeps working.
+        response = await fetch(`${ctx.baseUrl}/api/generation/local-api`);
+        assert.strictEqual(response.status, 200);
+
+        await putConfig(ctx.baseUrl, { localApi: { enabled: true } });
+        assert.strictEqual((await fetch(`${ctx.v1}/models`)).status, 200);
+      } finally {
+        await ctx.stop();
+      }
+    },
+  );
+
+  it(
+    'reports the loaded model, swaps models on request and unloads on demand',
+    { timeout: 180_000, skip: fakeLlamaUnavailable() },
+    async () => {
+      const ctx = await startWithModels('threadshelf-local-api-unload-');
+      try {
+        assert.deepStrictEqual(await loadedIds(ctx.v1), []);
+
+        // Nothing loaded: unloading is a harmless no-op.
+        let response = await post(`${ctx.v1}/models/unload`, {});
+        assert.strictEqual(response.status, 200);
+        assert.deepStrictEqual(await response.json(), { unloaded: false, model: null });
+
+        assert.strictEqual((await chat(ctx.v1, 'Alpha.Q4_K_M')).status, 200);
+        assert.deepStrictEqual(await loadedIds(ctx.v1), ['Alpha.Q4_K_M']);
+        response = await fetch(`${ctx.v1}/models/Alpha.Q4_K_M`);
+        assert.strictEqual((await response.json()).loaded, true);
+
+        // Asking for another model replaces the one in memory.
+        assert.strictEqual((await chat(ctx.v1, 'Beta.Q8_0')).status, 200);
+        assert.deepStrictEqual(await loadedIds(ctx.v1), ['Beta.Q8_0']);
+
+        // Naming a model that is not loaded leaves the loaded one alone.
+        response = await post(`${ctx.v1}/models/unload`, { model: 'Alpha.Q4_K_M' });
+        assert.deepStrictEqual(await response.json(), { unloaded: false, model: 'Beta.Q8_0' });
+        assert.deepStrictEqual(await loadedIds(ctx.v1), ['Beta.Q8_0']);
+
+        response = await post(`${ctx.v1}/models/unload`, { model: 'missing' });
+        assert.strictEqual(response.status, 404);
+        assert.strictEqual((await response.json()).error.code, 'model_not_found');
+
+        response = await post(`${ctx.v1}/models/unload`, { model: 'beta.q8_0' });
+        assert.deepStrictEqual(await response.json(), { unloaded: true, model: 'Beta.Q8_0' });
+        assert.deepStrictEqual(await loadedIds(ctx.v1), []);
+        response = await fetch(`${ctx.baseUrl}/api/generation/runtime`);
+        assert.strictEqual((await response.json()).runtime.state, 'stopped');
+
+        // A body-less call unloads whatever is loaded; the next request reloads.
+        assert.strictEqual((await chat(ctx.v1, 'Alpha.Q4_K_M')).status, 200);
+        response = await fetch(`${ctx.v1}/models/unload`, { method: 'POST' });
+        assert.deepStrictEqual(await response.json(), { unloaded: true, model: 'Alpha.Q4_K_M' });
+        assert.strictEqual((await chat(ctx.v1, 'Alpha.Q4_K_M')).status, 200);
+        assert.deepStrictEqual(await loadedIds(ctx.v1), ['Alpha.Q4_K_M']);
+
+        // Unload is a POST; GET reaches the model lookup and finds no such model.
+        response = await fetch(`${ctx.v1}/models/unload`);
+        assert.strictEqual(response.status, 404);
+      } finally {
+        await ctx.stop();
+      }
+    },
+  );
+
+  it(
+    'unloads the model after the configured idle time',
+    { timeout: 180_000, skip: fakeLlamaUnavailable() },
+    async () => {
+      // One "minute" lasts 300 ms here.
+      const ctx = await startWithModels('threadshelf-local-api-idle-', {
+        THREADSHELF_IDLE_MINUTE_MS: '300',
+      });
+      try {
+        // Default: the model stays loaded.
+        assert.strictEqual((await chat(ctx.v1, 'Alpha.Q4_K_M')).status, 200);
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        assert.deepStrictEqual(await loadedIds(ctx.v1), ['Alpha.Q4_K_M']);
+
+        // Turning the timeout on arms it for the model already in memory.
+        await putConfig(ctx.baseUrl, { llamaCpp: { idleUnloadMinutes: 1 } });
+        await waitFor(
+          async () => (await loadedIds(ctx.v1)).length === 0,
+          'model was not unloaded after the idle timeout',
+        );
+
+        // Requests keep resetting the timer; it unloads only after the last one.
+        assert.strictEqual((await chat(ctx.v1, 'Alpha.Q4_K_M')).status, 200);
+        await putConfig(ctx.baseUrl, { llamaCpp: { idleUnloadMinutes: 5 } });
+        for (let index = 0; index < 4; index += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          assert.strictEqual((await chat(ctx.v1, 'Alpha.Q4_K_M')).status, 200);
+          assert.deepStrictEqual(await loadedIds(ctx.v1), ['Alpha.Q4_K_M']);
+        }
+        await waitFor(
+          async () => (await loadedIds(ctx.v1)).length === 0,
+          'model was not unloaded after the last request went idle',
+        );
+        const logs = await (await fetch(`${ctx.baseUrl}/api/generation/runtime/logs`)).json();
+        assert.match(logs.logs, /Unloading after 5 min without requests/);
+      } finally {
+        await ctx.stop();
+      }
+    },
+  );
+
+  it(
+    'serves only /v1 on the optional network port',
+    { timeout: 180_000, skip: fakeLlamaUnavailable() },
+    async () => {
+      const ctx = await startWithModels('threadshelf-local-api-network-');
+      const networkPort = await freePort();
+      const network = `http://127.0.0.1:${networkPort}`;
+      try {
+        await assert.rejects(() => fetch(`${network}/v1/models`), 'off by default');
+
+        let body = await putConfig(ctx.baseUrl, { localApi: { networkAccess: true, networkPort } });
+        assert.strictEqual(body.config.localApi.networkAccess, true);
+        let status = await (await fetch(`${ctx.baseUrl}/api/generation/local-api`)).json();
+        assert.strictEqual(status.network.state, 'listening');
+        assert.strictEqual(status.network.port, networkPort);
+        for (const url of status.network.urls) {
+          assert.match(url, new RegExp(`^http://[\\d.]+:${networkPort}/v1$`));
+        }
+
+        let response = await fetch(`${network}/v1/models`);
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual((await chat(`${network}/v1`, 'Alpha.Q4_K_M')).status, 200);
+
+        // The archive and the settings API are never served on this port.
+        for (const path of ['/api/generation/config', '/api/health', '/', '/index.html']) {
+          response = await fetch(`${network}${path}`);
+          assert.strictEqual(response.status, 404, path);
+        }
+
+        // Without a key: IP addresses and this machine's name only, no cross-site pages.
+        let raw = await rawGet(network, '/v1/models', { host: `192.168.7.7:${networkPort}` });
+        assert.strictEqual(raw.status, 200);
+        raw = await rawGet(network, '/v1/models', { host: `attacker.example:${networkPort}` });
+        assert.strictEqual(raw.status, 403);
+        raw = await rawGet(network, '/v1/models', {
+          host: `192.168.7.7:${networkPort}`,
+          origin: 'https://attacker.example',
+        });
+        assert.strictEqual(raw.status, 403);
+
+        // With a key, the key decides, whatever name the client used.
+        await putConfig(ctx.baseUrl, { localApi: { apiKey: 'lan-key' } });
+        raw = await rawGet(network, '/v1/models', { host: `gpu-box.example:${networkPort}` });
+        assert.strictEqual(raw.status, 401);
+        raw = await rawGet(network, '/v1/models', {
+          host: `gpu-box.example:${networkPort}`,
+          authorization: 'Bearer lan-key',
+        });
+        assert.strictEqual(raw.status, 200);
+
+        // The loopback port still refuses other machines' names.
+        raw = await rawGet(ctx.baseUrl, '/v1/models', {
+          host: `192.168.7.7:${new URL(ctx.baseUrl).port}`,
+          authorization: 'Bearer lan-key',
+        });
+        assert.strictEqual(raw.status, 403);
+
+        // Turning the API off stops the network port too; turning it back on restores it.
+        await putConfig(ctx.baseUrl, { localApi: { enabled: false } });
+        await assert.rejects(() => fetch(`${network}/v1/models`));
+        await putConfig(ctx.baseUrl, { localApi: { enabled: true } });
+        response = await fetch(`${network}/v1/models`, { headers: { 'x-api-key': 'lan-key' } });
+        assert.strictEqual(response.status, 200);
+
+        // A port that cannot be used is reported instead of failing the save.
+        const mainPort = Number(new URL(ctx.baseUrl).port);
+        body = await putConfig(ctx.baseUrl, { localApi: { networkPort: mainPort } });
+        status = await (await fetch(`${ctx.baseUrl}/api/generation/local-api`)).json();
+        assert.strictEqual(status.network.state, 'error');
+        assert.match(status.network.error, /ThreadShelf's own port/);
+
+        await putConfig(ctx.baseUrl, { localApi: { networkAccess: false, networkPort } });
+        await assert.rejects(() => fetch(`${network}/v1/models`));
+        status = await (await fetch(`${ctx.baseUrl}/api/generation/local-api`)).json();
+        assert.deepStrictEqual(status.network, { state: 'off', urls: [] });
+      } finally {
+        await ctx.stop();
       }
     },
   );

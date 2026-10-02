@@ -1,5 +1,12 @@
-import { basename, dirname } from 'path';
-import { LlamaModelBusyError, withLlamaServer } from './llama-process.js';
+import { basename, dirname, resolve } from 'path';
+import { getGenerationConfig } from './config.js';
+import {
+  LlamaModelBusyError,
+  getLoadedLlamaModel,
+  stopManagedLlamaServer,
+  withLlamaRuntimeControl,
+  withLlamaServer,
+} from './llama-process.js';
 import { getGenerationProvider } from './registry.js';
 import type { GenerationModel } from './types.js';
 
@@ -19,6 +26,8 @@ export interface LocalApiModel {
   readonly target: string;
   /** The name llama-server knows the loaded model by (its `--alias`). */
   readonly upstreamModel: string;
+  /** In memory now (or loading); an external server's models always count as loaded. */
+  readonly loaded: boolean;
 }
 
 export type LocalApiErrorKind =
@@ -77,8 +86,9 @@ const toLocalApiModels = (models: readonly GenerationModel[]): LocalApiModel[] =
               : model.name,
           target: model.path,
           upstreamModel: model.name,
+          loaded: Boolean(model.loaded),
         }
-      : { id: model.id, target: model.id, upstreamModel: model.id };
+      : { id: model.id, target: model.id, upstreamModel: model.id, loaded: true };
     if (!byId.has(entry.id)) byId.set(entry.id, entry);
   }
   return [...byId.values()];
@@ -155,4 +165,46 @@ export const withLocalApiModel = async <T>(
       `Could not load "${model.id}": ${firstLine(error)}. The llama.cpp log is in ThreadShelf Settings.`,
     );
   }
+};
+
+export interface LocalApiUnloadResult {
+  readonly unloaded: boolean;
+  /** Id of the model that was in memory, or null when none was. */
+  readonly model: string | null;
+}
+
+/**
+ * Frees the memory held by the managed llama-server, like Eject in the UI.
+ * With `requested` set, only that model is unloaded; naming a model that is not
+ * loaded is a no-op rather than an error, so scripts can call this blindly.
+ */
+export const unloadLocalApiModel = async (requested: unknown): Promise<LocalApiUnloadResult> => {
+  const config = await getGenerationConfig();
+  if (config.llamaCpp.baseUrl) {
+    throw new LocalApiError(
+      'invalid_request',
+      `ThreadShelf is using an existing llama-server at ${config.llamaCpp.baseUrl}; unload models there.`,
+    );
+  }
+  const wanted =
+    requested === undefined || requested === null || requested === ''
+      ? undefined
+      : await resolveLocalApiModel(requested);
+  const loadedPath = getLoadedLlamaModel();
+  if (!loadedPath) return { unloaded: false, model: null };
+  const loaded = (await listLocalApiModels()).find((model) => resolve(model.target) === loadedPath);
+  const loadedId = loaded?.id ?? basename(loadedPath).replace(/\.gguf$/i, '');
+  if (wanted && resolve(wanted.target) !== loadedPath) return { unloaded: false, model: loadedId };
+  try {
+    await withLlamaRuntimeControl(stopManagedLlamaServer);
+  } catch (error) {
+    if (error instanceof LlamaModelBusyError) {
+      throw new LocalApiError(
+        'model_busy',
+        `${error.message}. The model is unloaded only between requests; retry when it finishes.`,
+      );
+    }
+    throw error;
+  }
+  return { unloaded: true, model: loadedId };
 };

@@ -3,7 +3,7 @@
 ThreadShelf is intentionally small: one Node.js server, reusable core modules,
 local embedding, local vector storage, and a React browser UI.
 
-Conversation generation is a separately marked **Experimental Beta**. The
+Conversation generation is an optional layer on top of the archive. The
 `llama.cpp` path is local; the explicitly selected OpenRouter path is external.
 
 ## High-Level Flow
@@ -35,6 +35,9 @@ Created chat -> internal __threads namespace -> generation provider -> persisted
 - Mounts the OpenAI/Anthropic-compatible local model API at `/v1`
   (`src/routes/local-api.ts`) ahead of the app-wide 512 KB JSON parser, since
   inference bodies carry whole conversations.
+- Starts the optional network listener (`src/local-api-network.ts`): a second
+  port bound to all interfaces that serves the same `/v1` router and nothing
+  else, so sharing models never exposes the archive or `/api`.
 
 `src/routes/`
 
@@ -132,6 +135,9 @@ Archive/index recovery (`src/store.ts`):
 - Wraps the OpenAI-compatible llama.cpp and OpenRouter chat APIs.
 - Maps public model ids to GGUF files for the `/v1` local model API and loads
   them under the same model lease as UI chats (`local-api.ts`).
+- Stops the previous `llama-server` and waits for it to exit before spawning
+  another model, and optionally unloads an idle model after
+  `idleUnloadMinutes` (`llama-process.ts`).
 - Converts provider SSE into redacted NDJSON progress and token events for the UI.
 - Reports whether a GGUF is discovered, loading, or active in the managed runtime.
 - Maps validated CPU/GPU/hybrid/multi-GPU profiles to upstream llama.cpp flags.
@@ -263,27 +269,31 @@ Core routes:
 - `POST /api/ingest-upload`
 - `GET /api/search`
 - `GET /api/thread`
-- `GET /api/generation/config` (**Experimental Beta**, loopback only)
-- `PUT /api/generation/config` (**Experimental Beta**, loopback only)
-- `GET /api/generation/models` (**Experimental Beta**, loopback only)
-- `GET /api/generation/runtime` (**Experimental Beta**, redacted runtime status)
-- `GET /api/generation/runtime/logs` / `POST /api/generation/runtime/eject` (**Experimental Beta**, loopback only)
-- `GET /api/generation/directories` (**Experimental Beta**, loopback only)
-- `/api/generation/prompts` CRUD and active selection (**Experimental Beta**, loopback only)
-- `/api/generation/threads` list/create/get/rename/delete (**Experimental Beta**, loopback only)
-- `POST /api/generation/chat` (**Experimental Beta**, loopback only)
-- `POST /api/generation/chat/stream` (**Experimental Beta**, loopback-only NDJSON)
-- `GET /api/generation/hardware` (**Experimental Beta**, loopback only)
-- `GET /api/generation/catalog/search` / `GET /api/generation/catalog/model` (**Experimental Beta**, loopback only)
-- `POST /api/generation/catalog/download` (**Experimental Beta**, loopback-only NDJSON, cancellable)
-- `GET /api/generation/setup/plan` (**Experimental Beta**, loopback only)
-- `POST /api/generation/setup/run` (**Experimental Beta**, loopback-only NDJSON; needs `confirm` plus the approved `fingerprint`)
+- `GET /api/generation/config` (loopback only)
+- `PUT /api/generation/config` (loopback only)
+- `GET /api/generation/models` (loopback only)
+- `GET /api/generation/runtime` (redacted runtime status)
+- `GET /api/generation/runtime/logs` / `POST /api/generation/runtime/eject` (loopback only)
+- `GET /api/generation/directories` (loopback only)
+- `/api/generation/prompts` CRUD and active selection (loopback only)
+- `/api/generation/threads` list/create/get/rename/delete (loopback only)
+- `POST /api/generation/chat` (loopback only)
+- `POST /api/generation/chat/stream` (loopback-only NDJSON)
+- `GET /api/generation/hardware` (loopback only)
+- `GET /api/generation/catalog/search` / `GET /api/generation/catalog/model` (loopback only)
+- `POST /api/generation/catalog/download` (loopback-only NDJSON, cancellable)
+- `GET /api/generation/setup/plan` (loopback only)
+- `POST /api/generation/setup/run` (loopback-only NDJSON; needs `confirm` plus the approved `fingerprint`)
 
-Local model API (**Experimental Beta**, loopback only; see [LOCAL_API.md](LOCAL_API.md)):
+Local model API (loopback only unless network access is
+on; optional API key; see [LOCAL_API.md](LOCAL_API.md)):
 
 - `GET /v1/models`, `GET /v1/models/{id}`
 - `POST /v1/chat/completions`, `POST /v1/completions`, `POST /v1/responses` (OpenAI)
 - `POST /v1/messages`, `POST /v1/messages/count_tokens` (Anthropic)
+- `POST /v1/models/unload` (ThreadShelf: free the loaded model's memory)
+- `GET /api/generation/local-api` (settings UI, loopback only): model list and
+  network listener status, without needing the API key
 
 ## Testing Layers
 

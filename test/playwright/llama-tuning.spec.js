@@ -16,7 +16,6 @@ const llamaCppConfig = (overrides = {}) => ({
 
 const configResponse = (llamaCpp) => ({
   config: {
-    experimentalAlpha: true,
     llamaCpp,
     openRouter: {
       baseUrl: 'https://openrouter.ai/api/v1',
@@ -58,10 +57,10 @@ test.describe('llama.cpp performance tuning UI', () => {
     const contextHelp = page.locator('.llama-runtime-config small', {
       hasText: /^[\d,]+ tokens/,
     });
-    await expect(contextHelp).not.toContainText('Experimental');
+    await expect(contextHelp).not.toContainText('slower');
     await page.getByLabel('Context window in tokens').fill('131072');
     await page.getByLabel('Context window in tokens').press('Escape');
-    await expect(contextHelp).toContainText('131,072 tokens · Experimental');
+    await expect(contextHelp).toContainText('131,072 tokens · Long context: generation slows');
 
     await kvCache.selectOption('memory');
     await speculative.selectOption('off');

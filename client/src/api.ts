@@ -11,7 +11,7 @@ import type {
   GenerationProviderId,
   GenerationResponse,
   GenerationRuntimeResponse,
-  LocalApiModel,
+  LocalApiStatus,
   LlamaRuntimeDiagnostics,
   GenerationStreamEvent,
   MasterPromptCollection,
@@ -142,17 +142,9 @@ export const api = {
     }
   },
 
-  /** Models served by the local API at /v1, which answers in OpenAI's error shape. */
-  async localApiModels(signal?: AbortSignal): Promise<LocalApiModel[]> {
-    const response = await fetch('/v1/models', { signal });
-    const data = (await response.json().catch(() => ({}))) as {
-      data?: LocalApiModel[];
-      error?: { message?: string };
-    };
-    if (!response.ok) {
-      throw new ApiError(response.status, data.error?.message ?? response.statusText);
-    }
-    return data.data ?? [];
+  /** Models and network listener of the local API at /v1, read through /api so no key is needed. */
+  localApiStatus(signal?: AbortSignal) {
+    return request<LocalApiStatus>('/api/generation/local-api', { signal });
   },
 
   collections(signal?: AbortSignal) {
@@ -329,12 +321,20 @@ export const api = {
       readonly kvCache?: 'default' | 'quality' | 'memory';
       readonly speculative?: 'off' | 'auto' | 'aggressive';
       readonly reasoningEffort?: 'default' | 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+      readonly idleUnloadMinutes?: number;
     };
     readonly openRouter?: {
       readonly apiKey?: string;
       readonly clearApiKey?: boolean;
       readonly enforceZdr?: boolean;
       readonly denyDataCollection?: boolean;
+    };
+    readonly localApi?: {
+      readonly enabled?: boolean;
+      readonly apiKey?: string;
+      readonly clearApiKey?: boolean;
+      readonly networkAccess?: boolean;
+      readonly networkPort?: number;
     };
     readonly diagnostics?: {
       readonly persistErrorLogs?: boolean;

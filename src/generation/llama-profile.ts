@@ -47,7 +47,7 @@ export const resolveLlamaTuning = (
       ? `exceeds the model's native ${formatTokens(model.contextLength)}`
       : '',
     config.contextSize > LONG_CONTEXT_WARNING_TOKENS
-      ? 'experimental: very long contexts can decode much slower'
+      ? 'long context: decoding slows as it fills and the KV cache needs much more VRAM'
       : '',
   ].filter(Boolean);
   entries.push({

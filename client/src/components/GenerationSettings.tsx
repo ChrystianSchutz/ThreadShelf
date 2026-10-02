@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
+import { LOCAL_API_STATUS_KEY } from '../queries';
 import type {
   GenerationConfigResponse,
   GenerationModel,
@@ -13,7 +15,13 @@ import type {
 import { toast } from '../toast';
 import { DirectoryPicker } from './DirectoryPicker';
 import { GenerationRuntimeBadge } from './GenerationRuntimeBadge';
-import { LocalApiPanel } from './LocalApiPanel';
+import {
+  LocalApiPanel,
+  isValidNetworkPort,
+  localApiDraftFrom,
+  type LocalApiDraft,
+} from './LocalApiPanel';
+import type { GuideTab } from './LocalApiGuide';
 import { ModelCatalogModal } from './ModelCatalogModal';
 import { NumberCombobox } from './NumberCombobox';
 import { QuickSetupPanel } from './QuickSetupPanel';
@@ -28,10 +36,11 @@ const CONTEXT_SIZE_LABELS: Record<number, string> = {
   16_384: '16k',
   32_768: '32k · recommended for 24 GB GPUs',
   65_536: '64k · long',
-  131_072: '128k · experimental',
-  262_144: '262k · native for Qwen3.8 · experimental',
+  131_072: '128k · long, slower',
+  262_144: '262k · native for Qwen3.8 · needs Q4 KV on 24 GB',
 };
-// Current llama.cpp CUDA builds have reported severe decode slowdowns past ~64–80K.
+// Past 64K, generation slows noticeably as the context fills (RTX 3090 Ti, Gemma 4
+// 26B-A4B: 110 tok/s at 32K, 69 at 128K, 46 at 256K; see docs/PERFORMANCE.md).
 const LONG_CONTEXT_TOKENS = 65_536;
 
 const KV_CACHE_HELP: Record<LlamaKvCacheProfile, string> = {
@@ -57,6 +66,17 @@ const REASONING_HELP: Record<LlamaReasoningEffort, string> = {
   high: 'Longer thinking.',
   xhigh: 'Slowest · maximum reasoning, can consume much of the context.',
 };
+
+// Like Ollama's keep_alive: how long an unused model stays in memory.
+const IDLE_UNLOAD_PRESETS: readonly { readonly minutes: number; readonly label: string }[] = [
+  { minutes: 0, label: 'Never (until another model or Eject)' },
+  { minutes: 5, label: 'After 5 minutes idle' },
+  { minutes: 15, label: 'After 15 minutes idle' },
+  { minutes: 30, label: 'After 30 minutes idle' },
+  { minutes: 60, label: 'After 1 hour idle' },
+  { minutes: 240, label: 'After 4 hours idle' },
+  { minutes: 1440, label: 'After 1 day idle' },
+];
 
 const ACCELERATION_HELP: Record<LlamaAccelerationMode, string> = {
   auto: 'Recommended. llama.cpp fits as many layers as possible to available accelerators, then uses CPU.',
@@ -88,8 +108,12 @@ export function GenerationSettings() {
   const [enforceZdr, setEnforceZdr] = useState(false);
   const [denyDataCollection, setDenyDataCollection] = useState(false);
   const [persistErrorLogs, setPersistErrorLogs] = useState(true);
+  const [idleUnloadMinutes, setIdleUnloadMinutes] = useState(0);
+  const [localApi, setLocalApi] = useState<LocalApiDraft>(() => localApiDraftFrom(undefined));
+  const queryClient = useQueryClient();
   const [models, setModels] = useState<GenerationModel[] | null>(null);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [guide, setGuide] = useState<GuideTab | null>(null);
 
   const applyData = (next: GenerationConfigResponse) => {
     setData(next);
@@ -111,6 +135,8 @@ export function GenerationSettings() {
     setEnforceZdr(next.config.openRouter.enforceZdr);
     setDenyDataCollection(next.config.openRouter.denyDataCollection);
     setPersistErrorLogs(next.config.diagnostics?.persistErrorLogs ?? true);
+    setIdleUnloadMinutes(next.config.llamaCpp.idleUnloadMinutes ?? 0);
+    setLocalApi(localApiDraftFrom(next.config.localApi));
   };
 
   useEffect(() => {
@@ -132,6 +158,10 @@ export function GenerationSettings() {
   const save = async () => {
     if (!contextSizeValid) {
       setError('Context window must be a whole number from 512 to 1,048,576 tokens.');
+      return;
+    }
+    if (localApi.networkAccess && !isValidNetworkPort(localApi.networkPort)) {
+      setError('Network port must be a whole number from 1 to 65,535.');
       return;
     }
     setSaving(true);
@@ -156,15 +186,26 @@ export function GenerationSettings() {
           kvCache,
           speculative,
           reasoningEffort,
+          idleUnloadMinutes,
         },
         openRouter: {
           apiKey: apiKey || undefined,
           enforceZdr,
           denyDataCollection,
         },
+        localApi: {
+          enabled: localApi.enabled,
+          apiKey: localApi.apiKey || undefined,
+          clearApiKey: localApi.clearApiKey || undefined,
+          networkAccess: localApi.networkAccess,
+          networkPort: isValidNetworkPort(localApi.networkPort)
+            ? Number(localApi.networkPort)
+            : undefined,
+        },
         diagnostics: { persistErrorLogs },
       });
       applyData(next);
+      void queryClient.invalidateQueries({ queryKey: LOCAL_API_STATUS_KEY });
       setApiKey('');
       setModels(null);
       window.dispatchEvent(new Event('threadshelf:generation-runtime-changed'));
@@ -218,6 +259,13 @@ export function GenerationSettings() {
         <div className="panel-head">
           <h3>llama.cpp wrapper</h3>
           <span className="sub">local · primary engine</span>
+          <button
+            type="button"
+            className="btn sm ghost panel-head-action"
+            onClick={() => setGuide('settings')}
+          >
+            What do these settings mean?
+          </button>
         </div>
         <div className="panel-body generation-form">
           <label>
@@ -285,7 +333,7 @@ export function GenerationSettings() {
                 {contextSizeValid
                   ? `${Number(contextSize).toLocaleString()} tokens${
                       parsedContextSize > LONG_CONTEXT_TOKENS
-                        ? ' · Experimental: decoding can slow sharply past ~64–80K on current CUDA builds.'
+                        ? ' · Long context: generation slows as the context fills and the KV cache needs much more VRAM. Use the Memory saver KV cache on 24 GB GPUs.'
                         : ''
                     }`
                   : 'Enter a whole number from 512 to 1,048,576.'}
@@ -398,6 +446,28 @@ export function GenerationSettings() {
               </select>
               <small>{REASONING_HELP[reasoningEffort]}</small>
             </label>
+            <label>
+              <span>Unload model from memory</span>
+              <select
+                value={idleUnloadMinutes}
+                onChange={(event) => setIdleUnloadMinutes(Number(event.target.value))}
+              >
+                {IDLE_UNLOAD_PRESETS.some(
+                  (preset) => preset.minutes === idleUnloadMinutes,
+                ) ? null : (
+                  <option value={idleUnloadMinutes}>After {idleUnloadMinutes} minutes idle</option>
+                )}
+                {IDLE_UNLOAD_PRESETS.map((preset) => (
+                  <option key={preset.minutes} value={preset.minutes}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+              <small>
+                Frees VRAM and RAM when no chat or API request has used the model for a while. The
+                next request loads it again.
+              </small>
+            </label>
           </div>
           <div className="setup-note">
             Safe discovery: <code>npm run setup:llama</code>. Check latest release:{' '}
@@ -420,7 +490,13 @@ export function GenerationSettings() {
         </div>
       </div>
 
-      <LocalApiPanel />
+      <LocalApiPanel
+        generationConfig={data?.config}
+        guide={guide}
+        onGuide={setGuide}
+        draft={localApi}
+        onChange={(patch) => setLocalApi((current) => ({ ...current, ...patch }))}
+      />
 
       <div className="panel generation-panel">
         <div className="panel-head">

@@ -58,10 +58,12 @@ export const useFilesQuery = (collection: string, enabled: boolean) => {
   });
 };
 
-export const useLocalApiModelsQuery = () => {
+export const LOCAL_API_STATUS_KEY = ['local-api-status'] as const;
+
+export const useLocalApiStatusQuery = () => {
   return useQuery({
-    queryKey: ['local-api-models'],
-    queryFn: ({ signal }) => api.localApiModels(signal),
+    queryKey: LOCAL_API_STATUS_KEY,
+    queryFn: ({ signal }) => api.localApiStatus(signal),
     staleTime: 30_000,
   });
 };

@@ -179,7 +179,6 @@ test.describe('Experimental generation UI', () => {
     let sentMaxTokens;
     const configResponse = () => ({
       config: {
-        experimentalAlpha: true,
         llamaCpp: {
           modelDirectories: [],
           defaultModelDirectories: [],

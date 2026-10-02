@@ -8,12 +8,15 @@ test.describe('Chat and generation UI', () => {
     await expect(appPage.getByText('Experimental Alpha')).toHaveCount(0);
   });
 
-  test('the chat empty state carries a single alpha note', async ({ appPage, serverContext }) => {
+  test('the chat empty state no longer labels generation as alpha', async ({
+    appPage,
+    serverContext,
+  }) => {
     await appPage.goto(`${serverContext.baseUrl}/chat`);
     // No saved chats in the isolated test server, so the workspace explains
     // how created conversations differ from the imported archive.
     await expect(appPage.getByRole('heading', { name: 'Start a new conversation' })).toBeVisible();
-    await expect(appPage.getByText(/experimental \(alpha\)/i)).toBeVisible();
+    await expect(appPage.getByText(/experimental|alpha/i)).toHaveCount(0);
   });
 
   test('empty collections are hidden behind a "Show N empty" toggle', async ({

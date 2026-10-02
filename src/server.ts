@@ -3,14 +3,15 @@ import express from 'express';
 import { join } from 'path';
 import apiRouter from './routes/index.js';
 import { requireLocalOrigin } from './routes/local-origin.js';
-import localApiRouter from './routes/local-api.js';
+import { createLocalApiRouter } from './routes/local-api.js';
+import { startLocalApiNetworkListener } from './local-api-network.js';
 import { dataDir, packagePath } from './paths.js';
 import { startIndexRecovery } from './store.js';
 
 const app = express();
 // Mounted ahead of the app-wide body parser: inference requests carry whole
 // conversations (and base64 images), so /v1 parses JSON with its own limit.
-app.use('/v1', localApiRouter);
+app.use('/v1', createLocalApiRouter('local'));
 app.use(express.json({ limit: '512kb' }));
 
 // Package assets resolve against the installed module, never process.cwd():
@@ -49,6 +50,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 
 app.listen(PORT, HOST, () => {
   startIndexRecovery();
+  void startLocalApiNetworkListener(PORT);
   console.log(`Server: http://localhost:${PORT}`);
   console.log('Data directory:', dataDir());
 });

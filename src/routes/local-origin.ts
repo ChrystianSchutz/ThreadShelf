@@ -1,4 +1,6 @@
 import type { Request, RequestHandler } from 'express';
+import { isIP } from 'net';
+import { hostname } from 'os';
 
 const normalizeRequestHost = (value: string | undefined): string => {
   const host = String(value || '')
@@ -36,6 +38,30 @@ export const localOriginRejection = (req: Request): string | undefined => {
   try {
     const originHost = normalizeRequestHost(new URL(origin).host);
     return allowedHosts.has(originHost) ? undefined : 'Forbidden origin';
+  } catch {
+    return 'Invalid origin';
+  }
+};
+
+/**
+ * The network listener's counterpart to {@link localOriginRejection}: other
+ * machines reach it by IP address or by this computer's name, so those are
+ * accepted along with `ALLOWED_HOSTS`. Any other name can only come from DNS
+ * rebinding, and a browser Origin naming another site from a cross-site page.
+ */
+export const networkOriginRejection = (req: Request): string | undefined => {
+  const machine = hostname().toLowerCase();
+  const allowed = (host: string): boolean =>
+    isIP(host) !== 0 ||
+    localHosts().has(host) ||
+    host === machine ||
+    host === `${machine}.local` ||
+    host === `${machine}.lan`;
+  if (!allowed(normalizeRequestHost(req.headers.host))) return 'Forbidden host';
+  const origin = req.headers.origin;
+  if (!origin) return undefined;
+  try {
+    return allowed(normalizeRequestHost(new URL(origin).host)) ? undefined : 'Forbidden origin';
   } catch {
     return 'Invalid origin';
   }

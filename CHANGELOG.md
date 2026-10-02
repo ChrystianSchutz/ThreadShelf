@@ -6,7 +6,7 @@ All notable changes to ThreadShelf are documented here.
 
 ### Added
 
-- **Local model API** (Experimental Beta): the GGUF models ThreadShelf manages
+- **Local model API**: the GGUF models ThreadShelf manages
   are now served over the OpenAI- and Anthropic-compatible HTTP API that LM
   Studio and Ollama use, at `http://localhost:3000/v1`. It covers
   `GET /v1/models`, `POST /v1/chat/completions`, `/v1/completions`,
@@ -17,9 +17,36 @@ All notable changes to ThreadShelf are documented here.
   each SDK's own format. The API accepts requests only from this machine, and
   API calls are never archived. Settings shows the base URL, model ids and
   copyable examples. See [docs/LOCAL_API.md](docs/LOCAL_API.md).
+- **Local model API access settings.** The defaults match LM Studio and Ollama
+  (on, this computer only, no key). Optional: an API key, required as
+  `Authorization: Bearer` or `x-api-key` once set (also `THREADSHELF_API_KEY`);
+  **Serve on the local network**, a separate port (3001 by default) that serves
+  only `/v1` to other devices, with Host/Origin checks when no key is set; and
+  an off switch.
+- **Model memory controls.** `POST /v1/models/unload` frees the loaded model,
+  `GET /v1/models` reports which model is `loaded`, and **Unload model from
+  memory** (`LLAMA_CPP_IDLE_UNLOAD_MINUTES`) unloads an unused model after an
+  idle time, like Ollama's `keep_alive`. The default stays "never".
+- **In-app guide** for the local model API: what is on right now, step-by-step
+  setup for Claude Code, Codex CLI and DeepSeek Harness, and a plain-language
+  explanation of every generation setting.
+- **[docs/PERFORMANCE.md](docs/PERFORMANCE.md)**: measured speeds on an
+  RTX 3090 Ti (short and long context, Q8 vs Q4 KV cache, DFlash drafting),
+  recommended settings, and how to benchmark your own machine.
+
+### Changed
+
+- **Conversation generation is no longer marked Experimental Beta.** The
+  labels, the chat's "alpha" note and the `experimentalAlpha` config field are
+  gone; `docs/GENERATION_BETA.md` is now
+  [docs/GENERATION.md](docs/GENERATION.md). Context sizes above 64K are no
+  longer called experimental: the note now states the real cost (slower
+  generation as the context fills, more VRAM).
 
 ### Fixed
 
+- Switching models now waits for a `llama-server` that had to be force-killed
+  to exit before the next model starts, so its VRAM is free first.
 - API/MCP end-to-end tests now isolate the model download directory
   (`THREADSHELF_MODELS_PATH`), so models a developer has downloaded no longer
   leak into test servers.

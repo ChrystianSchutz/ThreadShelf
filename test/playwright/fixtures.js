@@ -39,6 +39,8 @@ export const test = base.extend({
           THREADSHELF_MODELS_PATH: join(tempRoot, 'models'),
           // Never let a developer's private .env key affect isolated tests.
           OPENROUTER_API_KEY: '',
+          // A developer's local API key would lock /v1 in every test.
+          THREADSHELF_API_KEY: '',
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
