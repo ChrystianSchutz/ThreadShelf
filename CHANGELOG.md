@@ -47,6 +47,9 @@ All notable changes to ThreadShelf are documented here.
 
 - Switching models now waits for a `llama-server` that had to be force-killed
   to exit before the next model starts, so its VRAM is free first.
+- `ingest --watch` on a missing folder now exits with an error on Node 24,
+  where recursive `fs.watch` no longer throws for it. This failed the 1.2.3
+  publish run, so 1.2.3 never reached npm.
 - API/MCP end-to-end tests now isolate the model download directory
   (`THREADSHELF_MODELS_PATH`), so models a developer has downloaded no longer
   leak into test servers.
