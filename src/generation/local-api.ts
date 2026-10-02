@@ -1,4 +1,5 @@
 import { basename, dirname, resolve } from 'path';
+import { createHash } from 'crypto';
 import { getGenerationConfig } from './config.js';
 import {
   LlamaModelBusyError,
@@ -76,9 +77,8 @@ const toLocalApiModels = (models: readonly GenerationModel[]): LocalApiModel[] =
   for (const model of models) {
     if (model.path) nameCounts.set(model.name, (nameCounts.get(model.name) ?? 0) + 1);
   }
-  const byId = new Map<string, LocalApiModel>();
-  for (const model of models) {
-    const entry: LocalApiModel = model.path
+  const entries: LocalApiModel[] = models.map((model) =>
+    model.path
       ? {
           id:
             (nameCounts.get(model.name) ?? 0) > 1
@@ -88,10 +88,21 @@ const toLocalApiModels = (models: readonly GenerationModel[]): LocalApiModel[] =
           upstreamModel: model.name,
           loaded: Boolean(model.loaded),
         }
-      : { id: model.id, target: model.id, upstreamModel: model.id, loaded: true };
-    if (!byId.has(entry.id)) byId.set(entry.id, entry);
-  }
-  return [...byId.values()];
+      : { id: model.id, target: model.id, upstreamModel: model.id, loaded: true },
+  );
+  const idCounts = new Map<string, number>();
+  for (const entry of entries) idCounts.set(entry.id, (idCounts.get(entry.id) ?? 0) + 1);
+  const reservedIds = new Set(entries.map((entry) => entry.id));
+  return entries.map((entry) => {
+    if (idCounts.get(entry.id) === 1) return entry;
+    // Qualifying by the last folder can still collide across roots. Keep paths
+    // private and ids stable across discovery order; never drop a model.
+    const digest = createHash('sha256').update(entry.target).digest('hex');
+    let id = `${entry.id}~${digest}`;
+    while (reservedIds.has(id)) id += '~';
+    reservedIds.add(id);
+    return { ...entry, id };
+  });
 };
 
 export const listLocalApiModels = async (): Promise<LocalApiModel[]> => {
@@ -179,24 +190,30 @@ export interface LocalApiUnloadResult {
  * loaded is a no-op rather than an error, so scripts can call this blindly.
  */
 export const unloadLocalApiModel = async (requested: unknown): Promise<LocalApiUnloadResult> => {
-  const config = await getGenerationConfig();
-  if (config.llamaCpp.baseUrl) {
-    throw new LocalApiError(
-      'invalid_request',
-      `ThreadShelf is using an existing llama-server at ${config.llamaCpp.baseUrl}; unload models there.`,
-    );
-  }
-  const wanted =
-    requested === undefined || requested === null || requested === ''
-      ? undefined
-      : await resolveLocalApiModel(requested);
-  const loadedPath = getLoadedLlamaModel();
-  if (!loadedPath) return { unloaded: false, model: null };
-  const loaded = (await listLocalApiModels()).find((model) => resolve(model.target) === loadedPath);
-  const loadedId = loaded?.id ?? basename(loadedPath).replace(/\.gguf$/i, '');
-  if (wanted && resolve(wanted.target) !== loadedPath) return { unloaded: false, model: loadedId };
   try {
-    await withLlamaRuntimeControl(stopManagedLlamaServer);
+    return await withLlamaRuntimeControl(async () => {
+      const config = await getGenerationConfig();
+      if (config.llamaCpp.baseUrl) {
+        throw new LocalApiError(
+          'invalid_request',
+          `ThreadShelf is using an existing llama-server at ${config.llamaCpp.baseUrl}; unload models there.`,
+        );
+      }
+      const wanted =
+        requested === undefined || requested === null || requested === ''
+          ? undefined
+          : await resolveLocalApiModel(requested);
+      const loadedPath = getLoadedLlamaModel();
+      if (!loadedPath) return { unloaded: false, model: null };
+      const loaded = (await listLocalApiModels()).find(
+        (model) => resolve(model.target) === loadedPath,
+      );
+      const loadedId = loaded?.id ?? basename(loadedPath).replace(/\.gguf$/i, '');
+      if (wanted && resolve(wanted.target) !== loadedPath)
+        return { unloaded: false, model: loadedId };
+      await stopManagedLlamaServer();
+      return { unloaded: true, model: loadedId };
+    });
   } catch (error) {
     if (error instanceof LlamaModelBusyError) {
       throw new LocalApiError(
@@ -206,5 +223,4 @@ export const unloadLocalApiModel = async (requested: unknown): Promise<LocalApiU
     }
     throw error;
   }
-  return { unloaded: true, model: loadedId };
 };

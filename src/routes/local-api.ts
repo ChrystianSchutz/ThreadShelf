@@ -231,6 +231,8 @@ export const createLocalApiRouter = (listener: LocalApiListener): Router => {
   });
 
   router.post(INFERENCE_ENDPOINTS, async (req, res) => {
+    const controller = abortOnDisconnect(req, res);
+    if (controller.signal.aborted) return;
     const body: unknown = req.body;
     if (!isJsonObject(body)) {
       throw new LocalApiError(
@@ -238,13 +240,14 @@ export const createLocalApiRouter = (listener: LocalApiListener): Router => {
         'The request body must be a JSON object sent with Content-Type: application/json.',
       );
     }
-    const model = await resolveLocalApiModel(body.model);
-    const payload = JSON.stringify({ ...body, model: model.upstreamModel });
-    const controller = abortOnDisconnect(req, res);
     try {
-      await withLocalApiModel(model, (baseUrl) =>
-        relay(new URL(`${baseUrl}${req.path}`), payload, res, controller.signal),
-      );
+      const model = await resolveLocalApiModel(body.model);
+      if (controller.signal.aborted) return;
+      const payload = JSON.stringify({ ...body, model: model.upstreamModel });
+      await withLocalApiModel(model, (baseUrl) => {
+        controller.signal.throwIfAborted();
+        return relay(new URL(`${baseUrl}${req.path}`), payload, res, controller.signal);
+      });
     } catch (error) {
       // The client went away; llama-server has already been told to stop.
       if (controller.signal.aborted) return;

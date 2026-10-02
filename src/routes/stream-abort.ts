@@ -23,6 +23,8 @@ export const abortOnDisconnect = (
   res.once('close', () => {
     if (!res.writableEnded) stop();
   });
+  // The connection may have closed during middleware or another awaited step.
+  if (req.aborted || res.destroyed || req.socket.destroyed) stop();
   return controller;
 };
 

@@ -69,6 +69,8 @@ model's id is its file name without `.gguf`:
 - **Ids are case-insensitive** when that still picks out a single model.
 - **Duplicate file names** in different folders get the folder as a prefix,
   e.g. `vendor-a/model.Q4_K_M`. Only the colliding files are renamed.
+  If those folder names also collide, a stable hash suffix keeps every model
+  addressable without exposing its filesystem path. Use the ids from `/v1/models`.
 - **Paths are never exposed.** The API shows ids, not locations on disk.
 - **An existing llama-server.** If **Existing local server URL** is set in
   Settings, `/v1` forwards to that server and lists its model ids unchanged

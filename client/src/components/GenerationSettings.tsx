@@ -167,27 +167,45 @@ export function GenerationSettings() {
     setSaving(true);
     setError('');
     try {
+      const llamaCpp = {
+        executablePath,
+        baseUrl,
+        modelDirectories: directories
+          .split(/\r?\n/)
+          .map((path) => path.trim())
+          .filter(Boolean),
+        contextSize: parsedContextSize,
+        acceleration,
+        gpuLayers,
+        splitMode,
+        mainGpu,
+        tensorSplit,
+        threads,
+        flashAttention,
+        kvCache,
+        speculative,
+        reasoningEffort,
+        idleUnloadMinutes,
+      };
+      const saved = data?.config.llamaCpp;
+      const savedLlamaCpp = {
+        ...saved,
+        executablePath: saved?.executablePath ?? '',
+        baseUrl: saved?.baseUrl ?? '',
+        tensorSplit: saved?.tensorSplit ?? '',
+        kvCache: saved?.kvCache ?? 'quality',
+        speculative: saved?.speculative ?? 'auto',
+        reasoningEffort: saved?.reasoningEffort ?? 'medium',
+        idleUnloadMinutes: saved?.idleUnloadMinutes ?? 0,
+      };
+      const llamaCppChanged = Object.entries(llamaCpp).some(
+        ([field, value]) =>
+          JSON.stringify(value) !==
+          JSON.stringify(savedLlamaCpp[field as keyof typeof savedLlamaCpp]),
+      );
       const next = await api.updateGenerationConfig({
-        llamaCpp: {
-          executablePath,
-          baseUrl,
-          modelDirectories: directories
-            .split(/\r?\n/)
-            .map((path) => path.trim())
-            .filter(Boolean),
-          contextSize: parsedContextSize,
-          acceleration,
-          gpuLayers,
-          splitMode,
-          mainGpu,
-          tensorSplit,
-          threads,
-          flashAttention,
-          kvCache,
-          speculative,
-          reasoningEffort,
-          idleUnloadMinutes,
-        },
+        // Access settings must stay editable while a model is generating.
+        llamaCpp: llamaCppChanged ? llamaCpp : undefined,
         openRouter: {
           apiKey: apiKey || undefined,
           enforceZdr,

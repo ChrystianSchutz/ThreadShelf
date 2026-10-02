@@ -200,6 +200,12 @@ stored thread -> generation registry -> llama.cpp (local) OR OpenRouter (externa
   with `readConsistencyInterval: 0` so processes see each other's commits.
 - Rename updates only the title column; appends build turns from the current row
   inside the thread-table lock.
+- Local API model ids use file names, folder prefixes for duplicate names, and
+  stable hash suffixes when those prefixes still collide. Never silently drop a
+  discovered model or expose its path. Idle unload and targeted API unload hold
+  runtime control through process exit; model checks for unload happen inside
+  that control. Access-only UI saves omit unchanged llama.cpp settings so key
+  changes and disabling network access remain possible during generation.
 - Reimport preserves ThreadShelf-authored continuations, including branches whose
   conversation keys disappear. A rewritten positional key preserves the old
   branch separately. Exports that parse to zero conversations are skipped and

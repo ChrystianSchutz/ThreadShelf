@@ -383,8 +383,7 @@ export const scheduleLlamaIdleUnload = async (): Promise<void> => {
     idleTimer = null;
     if (managed !== server || activeChatCount > 0 || runtimeControlActive || transition) return;
     appendLogText(server, `[ThreadShelf] Unloading after ${minutes} min without requests.\n`);
-    runtimeRevision += 1;
-    void stopCurrentLlamaServer().catch((error: unknown) => {
+    void withLlamaRuntimeControl(stopManagedLlamaServer).catch((error: unknown) => {
       console.error('[llama.cpp] Idle unload failed', error);
     });
   }, minutes * IDLE_MINUTE_MS);
@@ -415,6 +414,9 @@ export const withLlamaRuntimeControl = async <T>(operation: () => Promise<T>): P
     return await operation();
   } finally {
     runtimeControlActive = false;
+    // An idle timer may have expired while a lookup or settings operation held
+    // control. Rearm it if that operation left a model loaded.
+    void scheduleLlamaIdleUnload();
   }
 };
 

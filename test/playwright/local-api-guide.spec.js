@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures.js';
+import { startLocalApiUpstream } from '../shared/local-api-upstream.js';
 
 const openSettings = async (page, baseUrl) => {
   await page.goto(`${baseUrl}/settings`);
@@ -15,6 +16,94 @@ const putLocalApi = (baseUrl, localApi) =>
   });
 
 test.describe('Local model API settings and guide', () => {
+  test('access settings stay editable during inference, while runtime changes remain blocked', async ({
+    page,
+    serverContext,
+  }) => {
+    const upstream = await startLocalApiUpstream();
+    const controller = new AbortController();
+    const update = (body) =>
+      fetch(`${serverContext.baseUrl}/api/generation/config`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const { config: previous } = await (
+      await fetch(`${serverContext.baseUrl}/api/generation/config`)
+    ).json();
+    const savedBodies = [];
+    page.on('request', (req) => {
+      if (req.url().endsWith('/api/generation/config') && req.method() === 'PUT')
+        savedBodies.push(req.postDataJSON());
+    });
+    let stream;
+    try {
+      expect((await update({ llamaCpp: { baseUrl: upstream.baseUrl } })).status).toBe(200);
+      const panel = await openSettings(page, serverContext.baseUrl);
+      await expect(panel.locator('#local-api-model')).toContainText('synthetic-model');
+      const gate = upstream.holdNextInference();
+      stream = await fetch(`${serverContext.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'synthetic-model', stream: true, messages: [] }),
+        signal: controller.signal,
+      });
+      await stream.body.getReader().read();
+      await gate.started;
+      const save = async () => {
+        const response = page.waitForResponse(
+          (res) => res.url().endsWith('/api/generation/config') && res.request().method() === 'PUT',
+        );
+        await page.getByRole('button', { name: 'Save generation settings' }).click();
+        return (await response).status();
+      };
+      const key = 'synthetic-active-key';
+      const input = panel.locator('.local-api-key input');
+      await input.fill(key);
+      expect(await save()).toBe(200);
+      await expect(input).toHaveValue('');
+      expect(savedBodies.at(-1)).not.toHaveProperty('llamaCpp');
+      expect((await fetch(`${serverContext.baseUrl}/v1/models`)).status).toBe(401);
+      expect(
+        (
+          await fetch(`${serverContext.baseUrl}/v1/models`, {
+            headers: { authorization: `Bearer ${key}` },
+          })
+        ).status,
+      ).toBe(200);
+
+      // A real context change still needs an idle runtime and cannot stop inference.
+      await page
+        .getByLabel('Context window in tokens')
+        .fill(String(previous.llamaCpp.contextSize + 512));
+      await page.getByLabel('Context window in tokens').press('Escape');
+      expect(await save()).toBe(409);
+      await page.getByLabel('Context window in tokens').fill(String(previous.llamaCpp.contextSize));
+      await page.getByLabel('Context window in tokens').press('Escape');
+
+      await panel.getByLabel('Serve the local model API at /v1').uncheck();
+      expect(await save()).toBe(200);
+      expect(savedBodies.at(-1)).not.toHaveProperty('llamaCpp');
+      expect(
+        (
+          await fetch(`${serverContext.baseUrl}/v1/models`, {
+            headers: { authorization: `Bearer ${key}` },
+          })
+        ).status,
+      ).toBe(403);
+      controller.abort();
+      await gate.disconnected;
+    } finally {
+      controller.abort();
+      await upstream.stop();
+      await expect
+        .poll(async () =>
+          (await update({ llamaCpp: { baseUrl: previous.llamaCpp.baseUrl ?? '' } })).status,
+        )
+        .toBe(200);
+    }
+  });
+
   test.afterEach(async ({ serverContext }) => {
     // The server is shared by the worker: always leave the API open again.
     await putLocalApi(serverContext.baseUrl, {

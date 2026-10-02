@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { startApiServer } from './helpers.js';
 import { createFakeLlamaServer, fakeLlamaUnavailable } from '../shared/fake-llama.js';
 import { syntheticMtpModel } from '../shared/gguf.js';
+import { startLocalApiUpstream } from '../shared/local-api-upstream.js';
 
 const post = (url, body, headers = {}) =>
   fetch(url, {
@@ -92,6 +93,135 @@ const chat = (v1, model, headers = {}) =>
   );
 
 describe('local model API (/v1) E2E', () => {
+  it(
+    'turning off network access closes active inference without disabling loopback access',
+    { timeout: 30_000 },
+    async () => {
+      const upstream = await startLocalApiUpstream();
+      let ctx;
+      const controller = new AbortController();
+      try {
+        ctx = await startApiServer({
+          prefix: 'threadshelf-api-network-close-',
+          env: { LLAMA_CPP_BASE_URL: upstream.baseUrl },
+        });
+        const port = await freePort();
+        await putConfig(ctx.baseUrl, { localApi: { networkAccess: true, networkPort: port } });
+        const gate = upstream.holdNextInference();
+        const stream = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ model: 'synthetic-model', stream: true, messages: [] }),
+          signal: controller.signal,
+        });
+        const reader = stream.body.getReader();
+        await reader.read();
+        await gate.started;
+        const disconnected = reader.read();
+        const rejected = assert.rejects(disconnected);
+        await putConfig(ctx.baseUrl, { localApi: { networkAccess: false } });
+        await gate.disconnected;
+        await rejected;
+        await assert.rejects(() => fetch(`http://127.0.0.1:${port}/v1/models`));
+        assert.equal((await fetch(`${ctx.baseUrl}/v1/models`)).status, 200);
+      } finally {
+        controller.abort();
+        await ctx?.stop();
+        await upstream.stop();
+      }
+    },
+  );
+
+  it(
+    'does not start inference after disconnection during model lookup',
+    { timeout: 30_000 },
+    async () => {
+      const upstream = await startLocalApiUpstream();
+      let ctx;
+      try {
+        ctx = await startApiServer({
+          prefix: 'threadshelf-api-cancel-lookup-',
+          env: { LLAMA_CPP_BASE_URL: upstream.baseUrl },
+        });
+        const gate = upstream.holdNextModelList();
+        const client = request(`${ctx.baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+        });
+        client.on('error', () => {});
+        const closed = new Promise((resolve) => client.once('close', resolve));
+        client.end(
+          JSON.stringify({
+            model: 'synthetic-model',
+            stream: false,
+            messages: [{ role: 'user', content: 'cancelled' }],
+          }),
+        );
+        await gate.started;
+        client.destroy();
+        await closed;
+        gate.release();
+        await gate.finished;
+        const control = await post(`${ctx.baseUrl}/v1/chat/completions`, {
+          model: 'synthetic-model',
+          stream: false,
+          messages: [{ role: 'user', content: 'control' }],
+        });
+        assert.equal(control.status, 200);
+        await control.text();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        assert.deepEqual(
+          upstream.requests.map((req) => req.body.messages[0].content),
+          ['control'],
+        );
+      } finally {
+        await ctx?.stop();
+        await upstream.stop();
+      }
+    },
+  );
+
+  it(
+    'closes upstream streaming inference and releases the lease when the client cancels',
+    { timeout: 30_000 },
+    async () => {
+      const upstream = await startLocalApiUpstream();
+      let ctx;
+      try {
+        ctx = await startApiServer({
+          prefix: 'threadshelf-api-cancel-stream-',
+          env: { LLAMA_CPP_BASE_URL: upstream.baseUrl },
+        });
+        const gate = upstream.holdNextInference();
+        const controller = new AbortController();
+        const stream = await fetch(`${ctx.baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ model: 'synthetic-model', stream: true, messages: [] }),
+          signal: controller.signal,
+        });
+        await stream.body.getReader().read();
+        await gate.started;
+        controller.abort();
+        await gate.disconnected;
+        await waitFor(async () => {
+          const response = await fetch(`${ctx.baseUrl}/api/generation/config`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ llamaCpp: { idleUnloadMinutes: 0 } }),
+          });
+          return response.status === 200;
+        }, 'cancelled request still holds the runtime lease');
+        const next = await chat(`${ctx.baseUrl}/v1`, 'synthetic-model');
+        assert.equal(next.status, 200);
+        await next.text();
+      } finally {
+        await ctx?.stop();
+        await upstream.stop();
+      }
+    },
+  );
+
   it(
     'serves OpenAI- and Anthropic-compatible endpoints over the managed llama-server',
     { timeout: 180_000, skip: fakeLlamaUnavailable() },
