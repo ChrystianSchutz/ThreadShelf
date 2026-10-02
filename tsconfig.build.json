@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "removeComments": false
+  },
+  "include": ["src/**/*.ts", "mcp/**/*.ts"],
+  "exclude": ["node_modules", "client", "dist", "test", "public", "scripts"]
+}

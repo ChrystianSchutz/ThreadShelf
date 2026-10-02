@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { stat } from 'fs/promises';
 import { basename, resolve } from 'path';
 import { ingestFolder } from './ingest.js';
 import { invocation } from './paths.js';
@@ -79,6 +80,12 @@ try {
 
   if (!watchMode) {
     process.exit(result.errors.length > 0 ? 2 : 0);
+  }
+
+  // fs.watch does not reliably reject a missing folder (recursive watching on
+  // Linux under Node 24 returns quietly), so check before watching.
+  if (!(await stat(resolvedFolder).catch(() => null))?.isDirectory()) {
+    throw new Error(`cannot watch ${resolvedFolder}: not a folder`);
   }
 
   const stopRecovery = startIndexRecovery();

@@ -60,6 +60,7 @@ data/
 !package.json
 !package-lock.json
 !tsconfig.json
+!tsconfig.build.json
 !vite.config.ts
 !test/fixture.json
 !test/fixtures/
