@@ -35,6 +35,16 @@ export function McpView() {
       <div className="banner info">
         <span className="ico">{Icons.info}</span>
         <div className="grow">
+          Connected Obsidian vaults also expose <code>obsidian_search</code>,{' '}
+          <code>obsidian_read</code>, <code>obsidian_create</code> and <code>obsidian_edit</code>.
+          Disable <b>Allow vault writes</b> in Settings for read-only access. Deletion requires
+          explicit confirmation in ThreadShelf chat.
+        </div>
+      </div>
+
+      <div className="banner info">
+        <span className="ico">{Icons.info}</span>
+        <div className="grow">
           MCP runs over stdio against your local LanceDB — no port, no auth surface. Stop the
           process to revoke access.
         </div>

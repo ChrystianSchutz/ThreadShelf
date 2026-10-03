@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { generateObsidianChat } from '../generation/obsidian-agent.js';
 import {
   getGenerationConfig,
   llamaCppConfigChanged,
@@ -524,6 +525,8 @@ router.post('/api/generation/chat', requireLoopback, async (req, res) => {
   });
   let releaseChat: (() => void) | undefined;
   try {
+    if (req.body?.useObsidian)
+      throw new BadRequestError('Vault tools require the streaming chat UI');
     const leased = await prepareChatWithLease(req.body as Record<string, unknown>);
     const prepared = leased.prepared;
     releaseChat = leased.release;
@@ -588,7 +591,17 @@ router.post('/api/generation/chat/stream', requireLoopback, async (req, res) => 
       model: prepared.request.model,
     });
     let firstDelta = true;
-    const response = await generateChatStream(
+    if (req.body?.useObsidian !== undefined && typeof req.body.useObsidian !== 'boolean')
+      throw new BadRequestError('useObsidian must be a boolean');
+    const runGeneration =
+      req.body?.useObsidian === true
+        ? (
+            request: ChatRequest,
+            onDelta: Parameters<typeof generateChatStream>[1],
+            signal: AbortSignal,
+          ) => generateObsidianChat(request, onDelta, send, signal)
+        : generateChatStream;
+    const response = await runGeneration(
       prepared.request,
       (delta) => {
         if (firstDelta) {

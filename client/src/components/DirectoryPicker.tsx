@@ -3,11 +3,16 @@ import { api } from '../api';
 import type { DirectoryBrowserResponse } from '../types';
 
 interface DirectoryPickerProps {
+  readonly label?: string;
   readonly initialPath?: string;
   readonly onSelect: (path: string) => void;
 }
 
-export function DirectoryPicker({ initialPath, onSelect }: DirectoryPickerProps) {
+export function DirectoryPicker({
+  initialPath,
+  onSelect,
+  label = 'Browse system folders…',
+}: DirectoryPickerProps) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<DirectoryBrowserResponse | null>(null);
   const [path, setPath] = useState(initialPath || '');
@@ -38,7 +43,7 @@ export function DirectoryPicker({ initialPath, onSelect }: DirectoryPickerProps)
           disabled={loading}
           onClick={() => void browse(path)}
         >
-          {loading ? 'Opening…' : 'Browse system folders…'}
+          {loading ? 'Opening…' : label}
         </button>
         {error && <span className="field-error">{error}</span>}
       </div>

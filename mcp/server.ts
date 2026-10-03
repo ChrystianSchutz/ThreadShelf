@@ -20,6 +20,7 @@ import {
 } from '../src/validation.js';
 import { createRequire } from 'node:module';
 import { packagePath } from '../src/paths.js';
+import { VAULT_TOOLS, callVaultTool } from '../src/obsidian/tools.js';
 
 // Read at runtime rather than `import ... with { type: 'json' }`: a JSON import
 // makes tsc copy package.json into dist/, which would shadow the real package
@@ -37,6 +38,11 @@ interface ToolDefinition {
 }
 
 const TOOL_DEFINITIONS: ToolDefinition[] = [
+  ...VAULT_TOOLS.filter((tool) => tool.function.name !== 'obsidian_delete').map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    inputSchema: tool.function.parameters,
+  })),
   {
     name: 'list_collections',
     description: 'List all LanceDB collections discovered locally.',
@@ -359,6 +365,10 @@ const HANDLERS: Record<string, Handler> = {
           payload = await toolReadThread(args ?? {});
           break;
         default:
+          if (VAULT_TOOLS.some((tool) => tool.function.name === name)) {
+            payload = await callVaultTool(name, args ?? {});
+            break;
+          }
           throw new ValidationError(`Unknown tool: ${name}`, { field: 'name' });
       }
       return { content: asTextContent(payload), isError: false };

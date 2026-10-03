@@ -13,6 +13,13 @@ is removed when the tab session ends. Original export files are never modified.
 
 ## Privacy boundary
 
+Enable **Obsidian tools** in the composer to search a connected vault and create
+or edit Markdown notes. **Allow vault writes** defaults to on and can be disabled
+beside the composer. Deletion requires an explicit browser checkbox and decision
+for the listed files. OpenRouter also receives retrieved note text when vault
+tools are enabled. Private chats can still perform explicitly enabled vault
+writes. See [Obsidian integration](OBSIDIAN.md).
+
 Archive ingestion, embeddings, storage, search, and `llama.cpp` inference stay
 local. The OpenRouter option is different: selecting the
 **OpenRouter · external** tab is the explicit off-device choice. The model button

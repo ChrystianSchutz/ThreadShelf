@@ -1,4 +1,8 @@
 import type {
+  VaultConfig,
+  VaultNote,
+  VaultSearch,
+  VaultApproval,
   ArchiveInsights,
   CollectionStats,
   ConversationListItem,
@@ -128,6 +132,43 @@ export const readNdjsonStream = async <T = Record<string, unknown>>(
 };
 
 export const api = {
+  vaultConfig(signal?: AbortSignal) {
+    return request<VaultConfig>('/api/obsidian/config', { signal });
+  },
+  setVaultWritePermission(allowWrites: boolean) {
+    return request<VaultConfig>('/api/obsidian/config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ allowWrites }),
+    });
+  },
+  saveVaultConfig(config: VaultConfig) {
+    return request<VaultConfig>('/api/obsidian/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+  },
+  searchVault(query: string, signal?: AbortSignal) {
+    return request<VaultSearch>(buildUrl('/api/obsidian/search', { q: query }), { signal });
+  },
+  readVaultNote(path: string) {
+    return request<VaultNote>(buildUrl('/api/obsidian/note', { path }));
+  },
+  createVaultNote(path: string, content: string) {
+    return request<VaultNote>('/api/obsidian/note', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content }),
+    });
+  },
+  decideVaultDeletion(approval: VaultApproval, approve: boolean, acknowledged: boolean) {
+    return request<{ ok: boolean }>(`/api/obsidian/approvals/${encodeURIComponent(approval.id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: approval.token, approve, acknowledged }),
+    });
+  },
   async health(signal?: AbortSignal): Promise<boolean> {
     // A long ingest can keep the event loop busy; without a timeout a single
     // hung ping would block the health query indefinitely.

@@ -495,6 +495,7 @@ export interface ContinuationMessage {
 }
 
 interface GenerationChatCommonInput {
+  readonly useObsidian?: boolean;
   readonly provider: GenerationProviderId;
   readonly model: string;
   readonly prompt: string;
@@ -555,6 +556,12 @@ export interface GenerationResponse {
 }
 
 export type GenerationStreamEvent =
+  | { readonly type: 'vault-approval'; readonly approval: VaultApproval }
+  | {
+      readonly type: 'vault-tool';
+      readonly name: string;
+      readonly state: 'running' | 'done' | 'error';
+    }
   | {
       readonly type: 'status';
       readonly phase: 'preparing' | 'loading-model' | 'connecting' | 'generating' | 'saving';
@@ -570,3 +577,25 @@ export type GenerationStreamEvent =
     }
   | { readonly type: 'done'; readonly response: GenerationResponse }
   | { readonly type: 'error'; readonly error: string };
+
+export interface VaultConfig {
+  readonly vaultPath: string;
+  readonly allowWrites: boolean;
+}
+export interface VaultNote {
+  readonly path: string;
+  readonly content: string;
+  readonly revision: string;
+}
+export interface VaultSearch {
+  readonly hits: readonly { path: string; title: string; snippet: string; line: number }[];
+  readonly scanned: number;
+  readonly truncated: boolean;
+}
+export interface VaultApproval {
+  readonly id: string;
+  readonly token: string;
+  readonly model: string;
+  readonly files: readonly string[];
+  readonly expiresAt: string;
+}

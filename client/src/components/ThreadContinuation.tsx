@@ -20,6 +20,8 @@ import { ModelCatalogModal } from './ModelCatalogModal';
 import { ModelCombobox } from './ModelCombobox';
 import { NumberCombobox } from './NumberCombobox';
 import { LlamaLogPanel } from './LlamaLogPanel';
+import { ObsidianChatControls, VaultDeleteApproval } from './ObsidianPanel';
+import type { VaultApproval } from '../types';
 
 interface ThreadContinuationProps {
   readonly sourceFile?: string;
@@ -115,6 +117,9 @@ export function ThreadContinuation({
   const [continuation, setContinuation] = useState<ContinuationMessage[]>([...initialMessages]);
   const [loadingModels, setLoadingModels] = useState(true);
   const [sending, setSending] = useState(false);
+  const [useObsidian, setUseObsidian] = useState(false);
+  const [vaultApproval, setVaultApproval] = useState<VaultApproval | null>(null);
+  const [vaultActivity, setVaultActivity] = useState<string[]>([]);
   const [pendingUser, setPendingUser] = useState('');
   const [streamedContent, setStreamedContent] = useState<string[]>([]);
   const [streamedReasoning, setStreamedReasoning] = useState<string[]>([]);
@@ -457,8 +462,11 @@ export function ThreadContinuation({
     );
     const controller = new AbortController();
     requestController.current = controller;
+    setVaultApproval(null);
+    setVaultActivity([]);
     try {
       const common = {
+        useObsidian,
         provider,
         model,
         prompt: text,
@@ -479,6 +487,17 @@ export function ThreadContinuation({
                 conversationKey,
               },
         (event: GenerationStreamEvent) => {
+          if (event.type === 'vault-approval') {
+            setVaultApproval(event.approval);
+            setProgress('Waiting for your deletion decision…');
+          }
+          if (event.type === 'vault-tool') {
+            setVaultActivity((current) => [...current, `${event.name}: ${event.state}`].slice(-24));
+            if (event.state !== 'running') {
+              setVaultApproval(null);
+              setProgress('Continuing with vault tool results…');
+            }
+          }
           if (event.type === 'status') {
             setProgress(event.message);
             if (event.model) setStreamedModel(event.model);
@@ -567,6 +586,7 @@ export function ThreadContinuation({
     } finally {
       if (requestController.current === controller) requestController.current = null;
       setSending(false);
+      setVaultApproval(null);
       setPendingUser('');
       setStreamedContent([]);
       setStreamedReasoning([]);
@@ -860,6 +880,23 @@ export function ThreadContinuation({
       )}
 
       <div className="continue-card">
+        {vaultActivity.length > 0 && (
+          <details className="vault-activity">
+            <summary>Vault tool activity</summary>
+            <ul>
+              {vaultActivity.map((activity, index) => (
+                <li key={index}>{activity}</li>
+              ))}
+            </ul>
+          </details>
+        )}
+        {vaultApproval && (
+          <VaultDeleteApproval
+            key={vaultApproval.id}
+            approval={vaultApproval}
+            onDecision={() => setVaultApproval(null)}
+          />
+        )}
         {error && <div className="banner err">{error}</div>}
         {sending && (
           <div className="generation-progress" role="status" aria-live="polite">
@@ -1116,6 +1153,13 @@ export function ThreadContinuation({
             )}
           </div>
         </div>
+        <ObsidianChatControls
+          enabled={useObsidian}
+          onChange={setUseObsidian}
+          sending={sending}
+          external={provider === 'openrouter'}
+          ephemeral={ephemeral}
+        />
       </div>
       <ModelCatalogModal
         open={catalogOpen}

@@ -22,9 +22,27 @@ Export folder
 
 Indexed thread -> generation provider registry -> llama.cpp loopback OR OpenRouter
 Created chat -> internal __threads namespace -> generation provider -> persisted exchange
+Connected Obsidian vault -> safe live Markdown search/read -> UI / API / MCP / native chat tools
+Native chat tool call -> write policy + vault boundary -> create/edit OR browser-confirmed trash move
 ```
 
 ## Modules
+
+`src/obsidian/` and `src/generation/obsidian-agent.ts`
+
+- Keep the user's vault as ordinary Markdown files, separate from chat collections.
+- Store only the vault path and write policy in the local Obsidian configuration.
+- Search live note text/paths, with bounded scans and no embeddings or reimport step.
+- Validate relative Markdown paths, reject hidden paths and links, create exclusively,
+  and check revisions before atomic edits. A directory lock excludes other ThreadShelf
+  writers, including a separate MCP process.
+- Run bounded native tool rounds through the same generation providers; preserve
+  opaque provider reasoning state in memory within those rounds, never in the archive.
+- Keep deletion capabilities in server memory and emit them only to the browser.
+  Approval checks the explicit checkbox, configuration and note revisions before
+  moving files to vault trash. MCP has no deletion or approval capability.
+- Apply the saved write policy on each operation. The UI policy-only PATCH preserves
+  the current vault even when another browser tab has an older configuration cached.
 
 `src/server.ts`
 

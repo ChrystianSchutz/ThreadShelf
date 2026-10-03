@@ -71,6 +71,78 @@ flowchart LR
 - **One index, three front-ends.** The same archive is searchable from the web UI,
   the HTTP API, and any MCP-capable tool.
 
+## Comparison with other tools
+
+ThreadShelf combines a local conversation archive, semantic search, and optional
+thread continuation. The tools below overlap with that workflow but also cover
+other needs, including document research and agent orchestration.
+
+This is a documentation snapshot reviewed on **2026-10-03**, using the linked
+upstream sources (LibreChat's documentation is labeled **Latest / dev**).
+Installed releases, configuration, and extensions may differ.
+
+| Project                                                      | Main use case                                        | Documented search and source coverage                                                                                                                                                                                                | Workflow and integration                                                                                                                                                                                            |
+| ------------------------------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ThreadShelf**                                              | Archive, find, and continue AI conversations locally | Local multilingual semantic search and exact substring search across ChatGPT, Claude, AI Studio, OpenRouter, LM Studio, and Grok exports                                                                                             | Web UI, CLI, HTTP API, and an MCP **server** over one index; optional managed `llama.cpp` or explicitly external OpenRouter continuation                                                                            |
+| [LibreChat](https://github.com/LibreChat-AI/LibreChat)       | Multi-provider chat and agents                       | [Keyword search over chat history](https://www.librechat.ai/docs/features/search); semantic retrieval over uploaded files. [Import](https://www.librechat.ai/docs/features/import_convos) supports ChatGPT, Claude, and ChatbotUI v1 | [Agents](https://www.librechat.ai/docs/features/agents), MCP tools, branching, and artifacts; [user memory](https://www.librechat.ai/docs/features/memory) stores structured entries separately from history search |
+| [Open WebUI](https://docs.openwebui.com/features/)           | Self-hosted chat, knowledge, and tools               | [ChatGPT and native chat import](https://docs.openwebui.com/features/chat-conversations/data-controls/import-export/); [document RAG](https://docs.openwebui.com/features/chat-conversations/rag/)                                   | Local or external model connections, memory, and extensible tools                                                                                                                                                   |
+| [AnythingLLM](https://github.com/Mintplex-Labs/anything-llm) | Private document workspaces and agents               | [Retrieval over workspace documents](https://docs.anythingllm.com/chatting-with-documents/introduction), with configurable chunk selection and reranking                                                                             | Desktop or self-hosted app; local or external models, [agent flows](https://docs.anythingllm.com/agent-flows/overview), and [MCP tools](https://docs.anythingllm.com/mcp-compatibility/overview)                    |
+| [MyChatArchive](https://github.com/1ch1n/mychatarchive)      | Local chat archive for AI clients                    | Local semantic and keyword search; imports ChatGPT, Claude, Grok, Claude Code, and Cursor; optional summaries use an external LLM                                                                                                    | CLI and MCP server, thread groups, sensitivity levels, and topic context bundles                                                                                                                                    |
+| [hstry](https://github.com/byteowlz/hstry)                   | Unified history for coding agents and web chats      | Full-text search over imported agent sessions and web-chat histories                                                                                                                                                                 | CLI, TUI, MCP, and API components; source discovery, browser sync, and cross-agent session resume                                                                                                                   |
+| [Polylogue](https://github.com/Sinity/polylogue)             | Evidence and audit trail for AI work                 | Searches imported conversations and coding sessions; retains structured tool outcomes, lineage, usage, and costs when present in the source                                                                                          | Local archive, CLI, Python API, HTTP reader, and MCP server                                                                                                                                                         |
+| [Open Notebook](https://github.com/lfnovo/open-notebook)     | Research notebooks built around sources and notes    | Full-text and vector search over research content; answers with source citations                                                                                                                                                     | Local or external model configurations, source transformations, notes, and REST API                                                                                                                                 |
+
+### Where ThreadShelf fits
+
+| What you want to do                                         | ThreadShelf's current workflow                                                                    |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Find an old discussion when you cannot remember its wording | Search by meaning across the archive, then open the full thread around the matching turn          |
+| Locate an exact error, identifier, or code fragment         | Use keyword mode with collection, role, model, and date filters                                   |
+| Continue an exported conversation with a different model    | Reopen its stored turns and append a local `llama.cpp` or explicitly external OpenRouter exchange |
+| Let an existing AI client retrieve past conversations       | Connect to the MCP server's `search` and `read_thread` tools over the same local index            |
+
+For built-in agent orchestration, document RAG, or research notebooks, the
+corresponding tools above offer broader workflows. ThreadShelf currently focuses
+on conversation retrieval, continuation and scoped Obsidian tool workflows;
+general workflow automation, automatic fact memory and generated answers with
+archive citations are future directions.
+An MCP client can already use its search and thread-reading tools to retrieve
+context; a client using an external model may send that context off-device.
+
+Temporary chats are already available: click the ghost icon beside **New chat**
+to start a **Private conversation**. Its content stays in this tab's browser
+`sessionStorage`; it is not saved to the archive or indexed, and generation
+diagnostics are not persisted. Selecting OpenRouter still sends the conversation
+off-device. See [conversation generation](docs/GENERATION.md).
+
+### Obsidian / PKM integration
+
+Connect your existing vault in **Settings → Obsidian vault**. Search its Markdown
+notes locally, open the originals in Obsidian, and create new notes in the panel.
+Enable **Obsidian tools** in a conversation to let the selected model search,
+read, create and edit notes as part of a bounded tool-calling workflow.
+
+| Direction | Available workflow |
+| --- | --- |
+| **Obsidian → ThreadShelf / AI** | Live keyword search and note reading through the UI, HTTP API and MCP, with relative source paths and original Markdown |
+| **ThreadShelf → Obsidian** | Create Markdown notes or ask the agent to write conversation summaries with source links; edit existing notes using revision checks |
+
+**Allow vault writes** is **on by default** and can be disabled in Settings or
+beside the composer. Deletion always pauses the conversation for an explicit
+checkbox and confirmation showing the model and exact files. Approved deletions
+move notes to the vault's `.trash`; cancellation preserves them. MCP offers
+search/read/create/edit; deletion requires the interactive chat UI.
+
+Only ordinary `.md` files inside the configured vault are accessible. Hidden
+folders, attachments, symlinks, junctions and traversal are excluded. Creation
+never overwrites existing notes. Search reads current files without reimporting;
+semantic note indexing and automatic project export remain future work.
+
+With local llama.cpp, note context stays on-device. OpenRouter and external MCP
+models may send retrieved note content off-device. Private chats can still make
+explicitly enabled vault writes. See [Obsidian integration](docs/OBSIDIAN.md)
+for tools, controls, API routes and limits.
+
 ## Supported sources
 
 | Source                 | How export works                               | Format stability                     |
@@ -336,8 +408,9 @@ web UI and HTTP API.
 npm run mcp
 ```
 
-It exposes five tools for listing indexed data, inspecting statistics, semantic
-or exact search, and retrieving complete conversations.
+It exposes five archive tools for listing indexed data, inspecting statistics, semantic
+or exact search, and retrieving complete conversations, plus four Obsidian tools
+for vault search, reading, creation and revision-checked editing.
 
 See [MCP setup](docs/MCP.md) for clean-clone installation, client configuration,
 and security notes.

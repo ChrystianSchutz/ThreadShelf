@@ -2,14 +2,38 @@ export type GenerationProviderId = 'llama-cpp' | 'openrouter';
 export type OpenRouterModelSort = 'default' | 'most-popular' | 'newest';
 
 export interface ChatMessage {
-  readonly role: 'system' | 'user' | 'assistant';
+  readonly role: 'system' | 'user' | 'assistant' | 'tool';
   readonly content: string;
+  readonly tool_call_id?: string;
+  readonly tool_calls?: readonly ChatToolCall[];
+  /** Opaque provider state, replayed only within the current tool loop. */
+  readonly reasoning_details?: readonly Readonly<Record<string, unknown>>[];
+}
+
+export interface ChatToolCall {
+  readonly id: string;
+  readonly type: 'function';
+  readonly function: { readonly name: string; readonly arguments: string };
+}
+export interface ChatTool {
+  readonly type: 'function';
+  readonly function: {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: {
+      readonly type: 'object';
+      readonly properties: Record<string, unknown>;
+      readonly required: readonly string[];
+      readonly additionalProperties: false;
+    };
+  };
 }
 
 export interface ChatRequest {
   readonly provider: GenerationProviderId;
   readonly model: string;
   readonly messages: readonly ChatMessage[];
+  readonly tools?: readonly ChatTool[];
   readonly temperature?: number;
   readonly maxTokens?: number;
   /** Per-request OpenRouter routing override. Omitted for other providers. */
@@ -22,6 +46,8 @@ export interface ChatResponse {
   readonly provider: GenerationProviderId;
   readonly model: string;
   readonly content: string;
+  readonly toolCalls?: readonly ChatToolCall[];
+  readonly reasoningDetails?: readonly Readonly<Record<string, unknown>>[];
   readonly reasoning?: string;
   readonly usage?: {
     readonly promptTokens?: number;

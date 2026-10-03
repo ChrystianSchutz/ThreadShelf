@@ -81,7 +81,7 @@ describe('MCP stdio E2E', () => {
       const tempRoot = await mkdtemp(join(tmpdir(), 'threadshelf-mcp-'));
       const child = spawn(process.execPath, ['--import', 'tsx', 'mcp/server.ts'], {
         cwd: repoRoot,
-        env: { ...process.env, LANCEDB_PATH: join(tempRoot, '.lancedb') },
+        env: { ...process.env, LANCEDB_PATH: join(tempRoot, '.lancedb'), OBSIDIAN_CONFIG_PATH: join(tempRoot, 'obsidian.json') },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -105,6 +105,10 @@ describe('MCP stdio E2E', () => {
           'get_stats',
           'list_collections',
           'list_files',
+          'obsidian_create',
+          'obsidian_edit',
+          'obsidian_read',
+          'obsidian_search',
           'read_thread',
           'search',
         ]);

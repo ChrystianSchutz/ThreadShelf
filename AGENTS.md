@@ -59,6 +59,7 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
     local-origin.ts        Host/Origin guards: `/api` + loopback `/v1`, and the network listener
     stream-abort.ts        Shared "client went away" AbortController for streamed routes
   services/         search, thread, collections, insights business logic
+  obsidian/         Local vault config, safe Markdown operations, scoped tools and browser deletion approvals
   generation/       Generation provider plugins, config, model discovery, llama wrapper
     downloader.ts          Shared resumable, hash-verifying downloader (runtime + models)
     model-catalog.ts       Read-only Hugging Face GGUF browser (public API, no token)
@@ -76,6 +77,7 @@ client/             React + Vite + TypeScript web UI (npm workspace)
     components/QuickSetupPanel.tsx    One-confirmation llama.cpp + model install
     components/NumberCombobox.tsx Typeable token-budget dropdown (presets + free entry)
     components/MasterPromptMenu.tsx  Master-prompt editor (server-stored, sent with every request)
+    components/ObsidianPanel.tsx    Vault settings/search/create, chat write toggle and deletion confirmation
     components/LocalApiPanel.tsx  Settings panel: `/v1` URLs, model ids, examples, key + network access
     components/LocalApiGuide.tsx  Guide modal: live status, Claude Code/Codex/DeepSeek setup, settings help
     components/NotFound.tsx       Router `defaultNotFoundComponent` for unknown URLs
@@ -291,6 +293,21 @@ locale or time zone only when that behavior is what the test is meant to verify.
    guaranteed" note for undocumented formats — AI Studio, OpenRouter, LM Studio).
 
 ## External network surfaces
+
+Obsidian vault access is optional, configured in `.threadshelf/obsidian.json`
+(`OBSIDIAN_CONFIG_PATH` override), and uses live local keyword search of ordinary
+Markdown files. The native chat tool loop is `src/generation/obsidian-agent.ts`;
+enable it explicitly with `useObsidian`. OpenRouter receives retrieved note text
+when enabled. Writes default to true but the Settings/composer toggle enforces
+read-only access across native chat and MCP. Relative `.md` paths only; no hidden
+paths, traversal, symlinks/junctions or hard links. Creation never overwrites;
+editing requires a revision. Delete requests pause the stream for a browser-only
+capability plus explicit checkbox/decision, recheck revisions/policy, and move
+notes to vault `.trash`. Never expose an approval tool/capability to a model or
+MCP; MCP exposes only search/read/create/edit. Root changes invalidate pending
+operations. All server test helpers must set `OBSIDIAN_CONFIG_PATH` to isolated
+temp storage; tests must never connect to the developer's real vault. See
+`docs/OBSIDIAN.md` for bounds and limitations.
 
 Three, all opt-in and none of them carrying chat content:
 

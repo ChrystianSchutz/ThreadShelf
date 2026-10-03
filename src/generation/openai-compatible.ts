@@ -1,4 +1,10 @@
-import type { ChatDeltaHandler, ChatRequest, ChatResponse, GenerationProviderId } from './types.js';
+import type {
+  ChatDeltaHandler,
+  ChatRequest,
+  ChatResponse,
+  ChatToolCall,
+  GenerationProviderId,
+} from './types.js';
 
 interface OpenAiResponse {
   readonly model?: string;
@@ -7,6 +13,8 @@ interface OpenAiResponse {
       readonly content?: string | null;
       readonly reasoning?: string | null;
       readonly reasoning_content?: string | null;
+      readonly tool_calls?: readonly ChatToolCall[];
+      readonly reasoning_details?: readonly Readonly<Record<string, unknown>>[];
     };
   }[];
   readonly usage?: {
@@ -29,6 +37,12 @@ interface OpenAiStreamChunk {
       readonly content?: unknown;
       readonly reasoning?: unknown;
       readonly reasoning_content?: unknown;
+      readonly reasoning_details?: readonly Readonly<Record<string, unknown>>[];
+      readonly tool_calls?: readonly {
+        readonly index: number;
+        readonly id?: string;
+        readonly function?: { readonly name?: string; readonly arguments?: string };
+      }[];
     };
   }[];
   readonly usage?: OpenAiResponse['usage'];
@@ -109,6 +123,9 @@ const requestBody = (
     temperature: request.temperature,
     max_tokens: request.maxTokens,
     stream,
+    ...(request.tools?.length
+      ? { tools: request.tools, tool_choice: 'auto', parallel_tool_calls: false }
+      : {}),
     ...(stream ? { stream_options: { include_usage: true } } : {}),
     ...extraBody,
   });
@@ -184,12 +201,19 @@ export const openAiCompatibleChat = async ({
   const payload = (await response.json().catch(() => ({}))) as OpenAiResponse;
   const message = payload.choices?.[0]?.message;
   const content = message?.content?.trim();
-  if (!content) throw new Error(`${provider} returned an empty response`);
+  const toolCalls = validatedToolCalls(message?.tool_calls);
+  if (toolCalls?.length && !request.tools?.length)
+    throw new Error(`${provider} returned tool calls while tools are disabled`);
+  if (!content && !toolCalls?.length) throw new Error(`${provider} returned an empty response`);
   const reasoning = (message?.reasoning_content || message?.reasoning || '').trim() || undefined;
   return {
     provider,
     model: payload.model || request.model,
-    content,
+    content: content || '',
+    ...(toolCalls?.length ? { toolCalls } : {}),
+    ...(toolCalls?.length && message?.reasoning_details?.length
+      ? { reasoningDetails: validatedReasoningDetails(message.reasoning_details) }
+      : {}),
     reasoning,
     usage: responseUsage(payload.usage),
     performance: responsePerformance(payload.timings, payload.usage, performance.now() - startedAt),
@@ -229,6 +253,9 @@ export const openAiCompatibleChatStream = async (
   let usage: OpenAiResponse['usage'];
   let timings: OpenAiResponse['timings'];
   let streamDone = false;
+  const calls = new Map<number, { id: string; name: string; arguments: string }>();
+  const reasoningDetails: Readonly<Record<string, unknown>>[] = [];
+  let reasoningDetailBytes = 0;
 
   const consumeLine = async (rawLine: string): Promise<void> => {
     const line = rawLine.trim();
@@ -250,6 +277,28 @@ export const openAiCompatibleChatStream = async (
     if (chunk.usage) usage = chunk.usage;
     if (chunk.timings) timings = chunk.timings;
     const delta = chunk.choices?.[0]?.delta;
+    if (request.tools?.length && delta?.reasoning_details?.length) {
+      const details = validatedReasoningDetails(delta.reasoning_details);
+      reasoningDetailBytes += JSON.stringify(details).length;
+      if (reasoningDetailBytes > 1_000_000 || reasoningDetails.length + details.length > 10_000)
+        throw new Error('Provider tool state exceeds its limit');
+      reasoningDetails.push(...details);
+    }
+    for (const call of delta?.tool_calls || []) {
+      if (!Number.isInteger(call.index) || call.index < 0 || call.index >= 16)
+        throw new Error('Invalid tool call index');
+      const current = calls.get(call.index) || { id: '', name: '', arguments: '' };
+      current.id += call.id || '';
+      current.name += call.function?.name || '';
+      current.arguments += call.function?.arguments || '';
+      if (
+        current.arguments.length > 100_000 ||
+        current.id.length > 200 ||
+        current.name.length > 100
+      )
+        throw new Error('Tool call exceeds its size limit');
+      calls.set(call.index, current);
+    }
     const contentPart = textDelta(delta?.content);
     const reasoningPart = textDelta(delta?.reasoning_content ?? delta?.reasoning);
     if (!contentPart && !reasoningPart) return;
@@ -262,35 +311,92 @@ export const openAiCompatibleChatStream = async (
     });
   };
 
-  while (!streamDone) {
-    let result: ReadableStreamReadResult<Uint8Array>;
-    try {
-      result = await reader.read();
-    } catch (error) {
-      throw providerRequestError(provider, 'response stream failed', error);
+  try {
+    while (!streamDone) {
+      let result: ReadableStreamReadResult<Uint8Array>;
+      try {
+        result = await reader.read();
+      } catch (error) {
+        throw providerRequestError(provider, 'response stream failed', error);
+      }
+      const { done, value } = result;
+      buffer += decoder.decode(value, { stream: !done });
+      if (buffer.length > 2_000_000)
+        throw new Error('Provider streaming event exceeds its size limit');
+      let newline = buffer.indexOf('\n');
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline).replace(/\r$/, '');
+        buffer = buffer.slice(newline + 1);
+        await consumeLine(line);
+        if (streamDone) break;
+        newline = buffer.indexOf('\n');
+      }
+      if (done) break;
     }
-    const { done, value } = result;
-    buffer += decoder.decode(value, { stream: !done });
-    let newline = buffer.indexOf('\n');
-    while (newline !== -1) {
-      const line = buffer.slice(0, newline).replace(/\r$/, '');
-      buffer = buffer.slice(newline + 1);
-      await consumeLine(line);
-      if (streamDone) break;
-      newline = buffer.indexOf('\n');
-    }
-    if (done) break;
+    if (!streamDone && buffer.trim()) await consumeLine(buffer);
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
-  if (!streamDone && buffer.trim()) await consumeLine(buffer);
-  if (streamDone) await reader.cancel().catch(() => undefined);
-  if (!content.trim()) throw new Error(`${provider} returned an empty response`);
+  const toolCalls = validatedToolCalls(
+    [...calls.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([, call]) => ({
+        id: call.id,
+        type: 'function' as const,
+        function: { name: call.name, arguments: call.arguments },
+      })),
+  );
+  if (toolCalls?.length && !request.tools?.length)
+    throw new Error(`${provider} returned tool calls while tools are disabled`);
+  if (!content.trim() && !toolCalls?.length)
+    throw new Error(`${provider} returned an empty response`);
 
   return {
     provider,
     model,
     content,
+    ...(toolCalls?.length ? { toolCalls } : {}),
+    ...(toolCalls?.length && reasoningDetails.length ? { reasoningDetails } : {}),
     reasoning: reasoning.trim() || undefined,
     usage: responseUsage(usage),
     performance: responsePerformance(timings, usage, performance.now() - startedAt),
   };
+};
+
+const validatedToolCalls = (
+  calls?: readonly ChatToolCall[],
+): readonly ChatToolCall[] | undefined => {
+  if (!calls?.length) return undefined;
+  if (!Array.isArray(calls) || calls.length > 16) throw new Error('Invalid tool calls');
+  const ids = new Set<string>();
+  for (const call of calls) {
+    if (
+      call.type !== 'function' ||
+      typeof call.id !== 'string' ||
+      !call.id ||
+      call.id.length > 200 ||
+      ids.has(call.id) ||
+      typeof call.function?.name !== 'string' ||
+      !/^[a-zA-Z0-9_]{1,100}$/.test(call.function.name) ||
+      typeof call.function.arguments !== 'string' ||
+      call.function.arguments.length > 100_000
+    )
+      throw new Error('Invalid tool call');
+    ids.add(call.id);
+  }
+  return calls;
+};
+
+const validatedReasoningDetails = (
+  details: readonly Readonly<Record<string, unknown>>[],
+): readonly Readonly<Record<string, unknown>>[] => {
+  if (
+    !Array.isArray(details) ||
+    details.length > 10_000 ||
+    details.some((entry) => !entry || typeof entry !== 'object' || Array.isArray(entry)) ||
+    JSON.stringify(details).length > 1_000_000
+  )
+    throw new Error('Invalid provider tool state');
+  return details;
 };

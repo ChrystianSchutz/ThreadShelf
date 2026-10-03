@@ -1,0 +1,129 @@
+.vault-panel {
+  margin-bottom: 24px;
+  .panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  input:not([type='checkbox']),
+  textarea {
+    width: 100%;
+    min-width: 0;
+  }
+  details > * {
+    margin-top: 10px;
+  }
+}
+.vault-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-meta);
+}
+.vault-hint {
+  color: var(--text-2);
+  font-size: var(--fs-meta);
+  overflow-wrap: anywhere;
+}
+.vault-actions,
+.vault-search,
+.vault-chat-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.vault-search input {
+  flex: 1;
+  min-width: 0;
+}
+.vault-chat-controls {
+  padding: 8px 0;
+  .vault-hint {
+    flex-basis: 100%;
+  }
+}
+.vault-results {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.vault-result {
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--border-0);
+  border-radius: var(--r-md);
+  background: var(--bg-1);
+  color: var(--text-1);
+  cursor: pointer;
+  strong,
+  span {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  span {
+    font-size: var(--fs-meta);
+    color: var(--text-2);
+  }
+  pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono);
+  }
+}
+.vault-note {
+  max-height: 520px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border-0);
+  border-radius: var(--r-md);
+  header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  strong {
+    overflow-wrap: anywhere;
+  }
+}
+.vault-approval {
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  padding: 16px;
+  margin: 12px 0;
+  background: var(--danger-soft);
+  header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+  }
+  strong,
+  li {
+    overflow-wrap: anywhere;
+  }
+  p {
+    font-size: var(--fs-meta);
+    color: var(--text-2);
+  }
+  ul {
+    padding-left: 20px;
+    margin: 12px 0;
+  }
+  footer {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    margin-top: 14px;
+  }
+}
+.vault-activity {
+  font-size: var(--fs-meta);
+  color: var(--text-2);
+  margin: 8px 0;
+  li {
+    overflow-wrap: anywhere;
+  }
+}
