@@ -20,8 +20,6 @@ export const searchAcrossCollections = async (
   opts: MultiSearchOptions = {},
 ): Promise<SearchResult[]> => {
   const n = opts.n ?? 15;
-  const model = opts.model;
-  const searchLimit = model ? 50 : n;
 
   if (opts.mode === 'keyword') {
     return keywordSearchAcrossCollections(query, collection, { ...opts, n });
@@ -36,12 +34,7 @@ export const searchAcrossCollections = async (
     const collections = await getAllCollections();
     const merged = await Promise.all(
       collections.map(async (name) => {
-        const rows = await searchCollection(
-          name,
-          query,
-          { ...opts, n: searchLimit },
-          queryEmbedding,
-        );
+        const rows = await searchCollection(name, query, { ...opts, n }, queryEmbedding);
         return rows.map((row) => ({
           ...row,
           metadata: { ...row.metadata, collection: name },
@@ -49,19 +42,14 @@ export const searchAcrossCollections = async (
       }),
     );
 
-    let results: SearchResult[] = merged.flat();
-    results = filterResultsByModel(results, model);
+    // Each collection already applied the exact role/model/date filters.
+    const results: SearchResult[] = merged.flat();
     results.sort(searchResultComparator(query, opts.keywordBoost === true));
     return results.slice(0, n);
   }
 
-  const rawResults = await searchCollection(
-    collection,
-    query,
-    { ...opts, n: searchLimit },
-    queryEmbedding,
-  );
-  return filterResultsByModel(rawResults, model).slice(0, n);
+  const rawResults = await searchCollection(collection, query, { ...opts, n }, queryEmbedding);
+  return rawResults.slice(0, n);
 };
 
 // Exact substring search. Model/date/role filtering happens inside
@@ -104,16 +92,3 @@ export const searchResultComparator =
     }
     return (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY);
   };
-
-const filterResultsByModel = (
-  results: SearchResult[],
-  model: string | undefined,
-): SearchResult[] => {
-  if (!model) return results;
-  const needle = model.toLowerCase();
-  return results.filter((row) =>
-    String(row.metadata.model || '')
-      .toLowerCase()
-      .includes(needle),
-  );
-};

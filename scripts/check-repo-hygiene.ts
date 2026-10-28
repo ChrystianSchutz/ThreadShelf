@@ -28,6 +28,7 @@ const allowedJson = [
   /^test\/fixture\.json$/i,
   /^test\/fixtures\/.+\.json$/i,
   /^docs\/mock-data\/.+\.json$/i,
+  /^benchmarks\/search\/(?:baseline|queries|corpus\/[^/]+)\.json$/i,
 ];
 const allowedImages = /^docs\/assets\/.+\.(?:png|gif|jpe?g|webp)$/i;
 

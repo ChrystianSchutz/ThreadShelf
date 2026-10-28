@@ -110,6 +110,7 @@ root installs both.
 | `npm run parse -- <file> -- [flags]`                 | Parse one export to normalized JSON; the second `--` is required before flags.          |
 | `npm run ingest -- <folder> [collection] -- [flags]` | Ingest a folder (`--clear`; `--watch`; `--debounce`).                                   |
 | `npm run search -- "<query>" -- [flags]`             | Search from the CLI (`--mode keyword`, `--collection`, `--n`, `--json`).                |
+| `npm run bench:search -- --check`                     | Run the isolated synthetic search-quality benchmark against its baseline.             |
 | `npm run setup:llama`                                | Local discovery only; `-- -- --check` reads metadata; install needs explicit consent.   |
 | `npm run build:package`                              | Build the publishable package: client UI into `public/`, server + MCP into `dist/`.     |
 | `npm pack --dry-run`                                 | Inspect exactly what would be published (runs `prepack`).                               |

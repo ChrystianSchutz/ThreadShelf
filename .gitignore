@@ -10,6 +10,7 @@ node_modules/
 .collections.json
 test-results/
 playwright-report/
+.benchmark-output/
 .playwright-mcp/
 
 # Vector-store and model-cache artifacts, in case one is written outside the
@@ -65,6 +66,7 @@ data/
 !test/fixture.json
 !test/fixtures/
 !test/fixtures/**/*.json
+!benchmarks/search/**/*.json
 !docs/mock-data/
 !docs/mock-data/**/*.json
 !mcps/**/*.json
