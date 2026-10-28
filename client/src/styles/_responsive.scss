@@ -100,6 +100,22 @@
     display: grid;
   }
 
+  .sb-brand {
+    height: 52px;
+    padding-left: 14px;
+  }
+
+  .icon-btn.sb-close {
+    width: 36px;
+    height: 36px;
+    margin-right: -4px;
+
+    svg {
+      width: 20px;
+      height: 20px;
+    }
+  }
+
   .sidebar-scrim {
     position: fixed;
     inset: 0;

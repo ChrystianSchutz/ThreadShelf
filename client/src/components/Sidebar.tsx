@@ -122,7 +122,7 @@ export function Sidebar({
       <section className="sb-chat-panel" aria-label="Conversations">
         <div className="sb-chat-create">
           <button id="sidebarNewChatButton" className="sb-new-chat" onClick={onNewChat}>
-            {Icons.spark}
+            {Icons.plus}
             <span>New chat</span>
           </button>
           <button

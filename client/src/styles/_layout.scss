@@ -278,26 +278,33 @@
 }
 
 .sb-new-chat {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 9px;
+  justify-content: center;
+  gap: 7px;
   min-height: 32px;
   padding: 0 10px;
-  border: 1px solid var(--accent-border);
+  border: 1px solid color-mix(in oklch, var(--accent) 85%, transparent);
   border-radius: var(--r-sm);
-  background: var(--accent);
-  color: var(--accent-ink);
-  text-align: left;
+  background: color-mix(in oklch, var(--accent) 28%, transparent);
+  color: var(--accent-text);
   font-size: 13px;
   font-weight: 500;
+  line-height: 1;
+
+  svg {
+    display: block;
+    flex: 0 0 auto;
+    width: 15px;
+    height: 15px;
+  }
 
   span {
     min-width: 0;
   }
 
   &:hover {
-    filter: brightness(1.06);
+    background: color-mix(in oklch, var(--accent) 38%, transparent);
   }
 }
 
@@ -309,7 +316,7 @@
   place-items: center;
   border: 1px solid var(--border-1);
   border-radius: var(--r-sm);
-  background: var(--bg-1);
+  background: transparent;
   color: var(--text-1);
 
   svg {
@@ -320,7 +327,7 @@
   &:hover {
     border-color: var(--accent-border);
     background: var(--accent-soft);
-    color: var(--accent-ink);
+    color: var(--accent-text);
   }
 }
 
