@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { safeLocalStorage } from './safe-storage';
 import type {
   FavoriteGenerationModel,
   GenerationProviderId,
@@ -134,6 +135,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'threadshelf:ui',
+      storage: createJSONStorage(() => safeLocalStorage),
       partialize: (state) => ({
         theme: state.theme,
         activeColl: state.activeColl,
