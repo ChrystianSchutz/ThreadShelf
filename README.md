@@ -29,6 +29,13 @@ new prompt off-device.
 
 ---
 
+**Documentation:** [chrystianschutz.github.io/ThreadShelf](https://chrystianschutz.github.io/ThreadShelf/)
+
+> **Official sources.** ThreadShelf is published only as this GitHub repository
+> and the [`threadshelf`](https://www.npmjs.com/package/threadshelf) npm package
+> (`npx threadshelf`). There is no installer, `.exe` or `.zip` download; if you
+> find one, it is not from this project. Please report it.
+
 ## What it does (in 30 seconds)
 
 1. You export/copy your chats as JSON (see [Get your data](#get-your-data)).

@@ -1,0 +1,54 @@
+# GitHub Pages site for ThreadShelf (Settings → Pages → Deploy from branch: main, /docs).
+title: ThreadShelf
+description: Local-first archive, search and continuation for your AI conversations and Markdown notes.
+url: https://chrystianschutz.github.io
+baseurl: /ThreadShelf
+remote_theme: just-the-docs/just-the-docs@v0.12.0
+color_scheme: threadshelf
+search_enabled: true
+heading_anchors: true
+plugins:
+  - jekyll-remote-theme
+  - jekyll-relative-links
+  - jekyll-optional-front-matter
+  - jekyll-titles-from-headings
+  - jekyll-seo-tag
+relative_links:
+  enabled: true
+  collections: false
+aux_links:
+  GitHub: https://github.com/ChrystianSchutz/ThreadShelf
+  npm: https://www.npmjs.com/package/threadshelf
+aux_links_new_tab: true
+footer_content: >-
+  MIT licensed. The only official sources are the
+  <a href="https://github.com/ChrystianSchutz/ThreadShelf">GitHub repository</a> and the
+  <a href="https://www.npmjs.com/package/threadshelf">threadshelf npm package</a>.
+exclude:
+  - mock-data/
+# Navigation order and titles, kept here so the Markdown files stay clean on GitHub.
+defaults:
+  - scope: { path: GETTING_STARTED.md }
+    values: { title: Getting started, nav_order: 2 }
+  - scope: { path: OBSIDIAN.md }
+    values: { title: Markdown and Obsidian, nav_order: 3 }
+  - scope: { path: GENERATION.md }
+    values: { title: Chat and local models, nav_order: 4 }
+  - scope: { path: VISION.md }
+    values: { title: Image input, nav_order: 5 }
+  - scope: { path: MCP.md }
+    values: { title: MCP setup, nav_order: 6 }
+  - scope: { path: LOCAL_API.md }
+    values: { title: Local model API, nav_order: 7 }
+  - scope: { path: OPENROUTER.md }
+    values: { title: OpenRouter export, nav_order: 8 }
+  - scope: { path: PERFORMANCE.md }
+    values: { title: Performance, nav_order: 9 }
+  - scope: { path: FAQ.md }
+    values: { title: FAQ, nav_order: 10 }
+  - scope: { path: ARCHITECTURE.md }
+    values: { title: Architecture, nav_order: 11 }
+  - scope: { path: SEARCH_BENCHMARK.md }
+    values: { title: Search benchmark, nav_order: 12 }
+  - scope: { path: REAL_DATA_TESTING.md }
+    values: { title: Real data testing, nav_order: 13 }

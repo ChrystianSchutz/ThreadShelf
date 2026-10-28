@@ -1,0 +1,10 @@
+// Square screenshots with a thin frame, as in the app.
+.main-content img {
+  border: 1px solid $border-color;
+  border-radius: 0;
+}
+
+.main-content pre.highlight,
+.main-content .highlighter-rouge {
+  border-radius: 4px;
+}
