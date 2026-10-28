@@ -7,9 +7,10 @@ contract above two engines:
 - OpenRouter, an optional external API.
 
 **New chat** creates a locally saved ThreadShelf conversation by default. A
-separate ghost-icon action starts a **Private conversation** whose history exists
-only in browser `sessionStorage`, is never written to LanceDB or `__threads`, and
-is removed when the tab session ends. Original export files are never modified.
+separate ghost-icon action starts a **Private conversation** whose messages, draft,
+and recovery attempts exist only in that tab's memory. They survive in-app
+navigation but disappear on reload or in a new tab. They are never written to
+browser storage, LanceDB, or `__threads`. Original export files are never modified.
 
 ## Privacy boundary
 
@@ -35,7 +36,7 @@ conversation.
 The **New chat** action opens a saved-by-default draft without creating an empty
 database row. The first send materializes the server-side conversation. The
 adjacent ghost icon is the explicit private alternative; its ephemeral generation
-request accepts bounded browser-session history but returns no persistence status
+request accepts bounded in-memory history but returns no persistence status
 and emits no `saving` phase. For a saved chat, the server:
 
 1. loads the saved turns instead of trusting browser-supplied history;
@@ -449,10 +450,11 @@ Streamed output uses immutable display blocks: only the current final block is
 updated, so selecting or copying earlier text is not disrupted by every token.
 There is also a **Copy current output** action during generation. If the backend
 exits, the stream fails, or the user presses Stop, ThreadShelf keeps the prompt,
-partial answer, and partial reasoning in a tab-session recovery card. Recovery
-cards are explicitly **not saved**, are excluded from later model context and
-LanceDB, and can be copied, dismissed, or restored to the composer with **Retry
-prompt**. They disappear when the tab session ends.
+partial answer, and partial reasoning in a recovery card. Recovery cards are
+explicitly **not saved**, are excluded from later model context and LanceDB,
+and can be copied, dismissed, or restored to the composer with **Retry prompt**.
+Private-chat recovery cards exist only in tab memory and disappear on reload;
+other recovery cards continue to use session storage.
 
 ## HTTP API
 
@@ -528,7 +530,7 @@ Example send within a created chat (history is loaded on the server):
 }
 ```
 
-Example anonymous send (history remains browser-session data and is not stored):
+Example anonymous send (history remains in tab memory and is not stored):
 
 ```json
 {
