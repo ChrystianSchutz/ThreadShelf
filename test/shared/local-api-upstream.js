@@ -33,6 +33,11 @@ export const startLocalApiUpstream = async () => {
   };
   const server = createServer(async (req, res) => {
     res.setHeader('content-type', 'application/json');
+    if (req.url === '/props') {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ modalities: { vision: false } }));
+      return;
+    }
     if (req.url === '/v1/models') {
       const gate = modelGate;
       modelGate = undefined;

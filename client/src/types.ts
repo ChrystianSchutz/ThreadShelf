@@ -205,7 +205,7 @@ export interface RoleFilters {
   ai: boolean;
 }
 
-export type GenerationProviderId = 'llama-cpp' | 'openrouter';
+export type GenerationProviderId = 'llama-cpp' | 'openrouter' | 'strata';
 export type OpenRouterModelSort = 'default' | 'most-popular' | 'newest';
 export type LlamaAccelerationMode = 'auto' | 'cpu' | 'gpu' | 'hybrid' | 'multi-gpu';
 export type LlamaSplitMode = 'layer' | 'row';
@@ -216,6 +216,7 @@ export interface GenerationModel {
   readonly name: string;
   readonly provider: GenerationProviderId;
   readonly path?: string;
+  readonly vision?: boolean;
   readonly sizeBytes?: number;
   readonly contextLength?: number;
   readonly promptPrice?: string;

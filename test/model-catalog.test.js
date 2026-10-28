@@ -7,6 +7,7 @@ import {
   getCatalogModel,
   groupCatalogQuants,
   parseGgufFileName,
+  preferredProjector,
   quantQualityTier,
   searchCatalogModels,
 } from '../src/generation/model-catalog.js';
@@ -83,6 +84,37 @@ describe('catalog quant grouping', () => {
       projectors.map((file) => file.path),
       ['mmproj-F16.gguf'],
     );
+  });
+
+  it('treats suffix-named projectors as projectors, like local discovery', () => {
+    const { quants, projectors } = groupCatalogQuants([
+      treeEntry('Model-Q4_K_M.gguf', 100),
+      treeEntry('model-mmproj-f16.gguf', 20),
+      treeEntry('Model.mmproj-BF16.gguf', 20),
+    ]);
+    assert.deepStrictEqual(
+      quants.map((quant) => quant.label),
+      ['Q4_K_M'],
+    );
+    assert.strictEqual(projectors.length, 2);
+  });
+
+  it('prefers one F16 projector, then BF16, F32 and the smallest file', () => {
+    const file = (path, sizeBytes) => ({ path, sizeBytes });
+    const pick = (...files) => preferredProjector(files)?.path;
+    assert.strictEqual(
+      pick(file('mmproj-F32.gguf', 40), file('mmproj-BF16.gguf', 20), file('mmproj-F16.gguf', 20)),
+      'mmproj-F16.gguf',
+    );
+    assert.strictEqual(
+      pick(file('mmproj-F32.gguf', 40), file('mmproj-BF16.gguf', 20)),
+      'mmproj-BF16.gguf',
+    );
+    assert.strictEqual(
+      pick(file('mmproj-Q8_0.gguf', 12), file('mmproj-Q4.gguf', 8)),
+      'mmproj-Q4.gguf',
+    );
+    assert.strictEqual(pick(), undefined);
   });
 
   it('exposes the LFS oid as the verifiable SHA-256 and ignores a malformed one', () => {
@@ -203,6 +235,30 @@ describe('catalog search and detail', () => {
     assert.strictEqual(plan.files[0].sha256, 'a'.repeat(64));
     assert.ok(plan.primaryPath.includes('unsloth__Qwen3.5-4B-GGUF'));
     assert.strictEqual(plan.requiresToken, false);
+  });
+
+  it('downloads exactly one projector when a repository publishes several', async () => {
+    const fetchImpl = async (url) =>
+      String(url).includes('/tree/main')
+        ? jsonResponse([
+            treeEntry('Vision-Q4_K_M.gguf', 100),
+            treeEntry('mmproj-F32.gguf', 40),
+            treeEntry('mmproj-F16.gguf', 20),
+            treeEntry('mmproj-BF16.gguf', 20),
+          ])
+        : jsonResponse({ id: 'someone/Vision-GGUF' });
+    const plan = await planModelDownload({
+      repoId: 'someone/Vision-GGUF',
+      quant: 'Q4_K_M',
+      includeProjector: true,
+      directory: '/tmp/threadshelf-models',
+      detail: await getCatalogModel('someone/Vision-GGUF', fetchImpl),
+    });
+    assert.deepStrictEqual(
+      plan.files.map((file) => file.repoPath),
+      ['Vision-Q4_K_M.gguf', 'mmproj-F16.gguf'],
+    );
+    assert.ok(plan.primaryPath.endsWith('Vision-Q4_K_M.gguf'));
   });
 
   it('reports that a gated repository needs a token before downloading', async () => {

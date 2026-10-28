@@ -70,6 +70,7 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
     local-api.ts           Public model ids for `/v1` and on-demand loading under the model lease
     error-log.ts           Optional rotating generation errors (.threadshelf/generation-errors.log)
     filesystem-browser.ts  Loopback-only, directory-only model-root browser
+    providers/strata.ts    Separately started Strata server (`STRATA_BASE_URL`, default `http://127.0.0.1:8080`, loopback-only)
 client/             React + Vite + TypeScript web UI (npm workspace)
   src/              Components, pages, store (zustand), queries (react-query)
     components/ModelCombobox.tsx  Searchable generation models + local favorites
@@ -164,7 +165,7 @@ JSON export -> parser (detectProvider) -> normalized Turn[]
             -> chunking -> local embeddings -> LanceDB collection
             -> UI / HTTP API / MCP search
 
-stored thread -> generation registry -> llama.cpp (local) OR OpenRouter (external, explicit consent)
+stored thread -> generation registry -> llama.cpp (local) OR Strata (local, external process) OR OpenRouter (external, explicit consent)
                                       -> provider SSE -> NDJSON progress/token stream -> UI
 ```
 
@@ -379,3 +380,10 @@ starts it with no clone and no build.
 
 When you finish a task, update this file if you changed commands, layout, or
 conventions.
+
+## Vision runtime
+
+`src/generation/vision.ts` resolves a unique sibling projector or the explicit
+`llamaCpp.projectorPaths` mapping, checks canonical paths against model roots,
+and validates inline images at `/v1`. Never infer vision from a model name or
+auto-pick an ambiguous projector. See `docs/VISION.md`; chat UI is text-only.

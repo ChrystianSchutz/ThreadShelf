@@ -1,10 +1,12 @@
 import { createLlamaCppProvider } from './providers/llama-cpp.js';
 import { createOpenRouterProvider } from './providers/openrouter.js';
+import { createStrataProvider } from './providers/strata.js';
 import type { GenerationProvider, GenerationProviderId } from './types.js';
 
 const providers = new Map<GenerationProviderId, GenerationProvider>([
   ['llama-cpp', createLlamaCppProvider()],
   ['openrouter', createOpenRouterProvider()],
+  ['strata', createStrataProvider()],
 ]);
 
 export const getGenerationProvider = (id: GenerationProviderId): GenerationProvider => {

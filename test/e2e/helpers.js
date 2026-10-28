@@ -41,6 +41,8 @@ export const startApiServer = async ({
       OPENROUTER_API_KEY: '',
       // A developer's local API key would lock /v1 in every test.
       THREADSHELF_API_KEY: '',
+      // A developer's Strata server must never answer isolated tests.
+      STRATA_BASE_URL: 'http://127.0.0.1:9',
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],

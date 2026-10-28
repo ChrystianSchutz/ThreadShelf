@@ -238,7 +238,7 @@ export interface Turn {
   readonly model?: string;
   readonly createdAt?: string;
   readonly createdInThreadShelf?: boolean;
-  readonly generationProvider?: 'llama-cpp' | 'openrouter';
+  readonly generationProvider?: 'llama-cpp' | 'openrouter' | 'strata';
 }
 
 export const validateTurn = (turn: unknown, { index }: { index?: number } = {}): NormalizedTurn => {
@@ -279,10 +279,10 @@ export const validateTurn = (turn: unknown, { index }: { index?: number } = {}):
   }
   if (
     t.generationProvider !== undefined &&
-    !['llama-cpp', 'openrouter'].includes(String(t.generationProvider))
+    !['llama-cpp', 'openrouter', 'strata'].includes(String(t.generationProvider))
   ) {
     throw new ValidationError(
-      `Invalid turn at index ${index}: generationProvider must be llama-cpp or openrouter`,
+      `Invalid turn at index ${index}: generationProvider must be llama-cpp, openrouter or strata`,
     );
   }
   const normalized: NormalizedTurn = {

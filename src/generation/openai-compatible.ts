@@ -68,7 +68,7 @@ const requestHeaders = (apiKey?: string): Record<string, string> => {
 };
 
 const requestSignal = (provider: GenerationProviderId, signal?: AbortSignal): AbortSignal => {
-  const timeout = AbortSignal.timeout(provider === 'llama-cpp' ? 30 * 60_000 : 5 * 60_000);
+  const timeout = AbortSignal.timeout(provider === 'openrouter' ? 5 * 60_000 : 30 * 60_000);
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 };
 

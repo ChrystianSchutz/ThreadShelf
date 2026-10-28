@@ -8,6 +8,7 @@
  *
  * Only catalog metadata leaves the machine. No chat content is ever sent here.
  */
+import { isProjectorFileName } from './model-discovery.js';
 
 export const HUGGINGFACE_ORIGIN = 'https://huggingface.co';
 
@@ -273,7 +274,11 @@ export const searchCatalogModels = async ({
 /** Splits `Model-Q4_K_M-00001-of-00002.gguf` into its quant label and shard index. */
 export const parseGgufFileName = (
   path: string,
-): { readonly label: string | null; readonly shardIndex?: number; readonly shardTotal?: number } => {
+): {
+  readonly label: string | null;
+  readonly shardIndex?: number;
+  readonly shardTotal?: number;
+} => {
   const segments = path.split('/');
   const fileName = segments[segments.length - 1] ?? path;
   let base = fileName.replace(/\.gguf$/i, '');
@@ -323,7 +328,8 @@ export const groupCatalogQuants = (
         : undefined,
     };
     const fileName = entry.path.split('/').pop() ?? entry.path;
-    if (/^mmproj/i.test(fileName)) {
+    // The same token rule as local discovery, so `model-mmproj-f16.gguf` is a projector too.
+    if (isProjectorFileName(fileName)) {
       projectors.push(file);
       continue;
     }
@@ -355,6 +361,26 @@ export const groupCatalogQuants = (
     quants: quants.map((quant) => ({ ...quant, recommended: quant === preferred })),
     projectors: projectors.sort((a, b) => a.path.localeCompare(b.path)),
   };
+};
+
+/**
+ * The one projector to download next to a model. Repositories often publish
+ * several precisions; downloading all of them would leave the model folder
+ * without a unique projector, and vision would stay off. F16 is the usual
+ * llama.cpp choice, then BF16, then F32, then the smallest file.
+ */
+export const preferredProjector = (projectors: readonly CatalogFile[]): CatalogFile | undefined => {
+  const precision = (file: CatalogFile): number => {
+    const name = (file.path.split('/').pop() ?? file.path).toLowerCase();
+    if (/(^|[-_.])f16([-_.]|$)/.test(name)) return 0;
+    if (/(^|[-_.])bf16([-_.]|$)/.test(name)) return 1;
+    if (/(^|[-_.])f32([-_.]|$)/.test(name)) return 2;
+    return 3;
+  };
+  return [...projectors].sort(
+    (a, b) =>
+      precision(a) - precision(b) || a.sizeBytes - b.sizeBytes || a.path.localeCompare(b.path),
+  )[0];
 };
 
 export const getCatalogModel = async (

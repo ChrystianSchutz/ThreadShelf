@@ -1,12 +1,14 @@
 import { mkdir, rm, stat } from 'fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
-import { defaultDownloadDirectory, getGenerationConfig } from './config.js';
+import { defaultDownloadDirectory, getGenerationConfig, updateGenerationConfig } from './config.js';
 import { downloadToFile, sha256File } from './downloader.js';
+import { isProjectorFileName } from './model-discovery.js';
 import {
   assertRepoId,
   catalogFileUrl,
   getCatalogModel,
   huggingFaceToken,
+  preferredProjector,
   type CatalogFile,
   type CatalogGating,
   type CatalogModelDetail,
@@ -49,7 +51,9 @@ export type ModelDownloadProgress =
 
 /** Turns `unsloth/Qwen3.5-4B-GGUF` into a flat, filesystem-safe folder name. */
 export const modelFolderName = (repoId: string): string =>
-  assertRepoId(repoId).replace(/\//g, '__').replace(/[^A-Za-z0-9._-]/g, '_');
+  assertRepoId(repoId)
+    .replace(/\//g, '__')
+    .replace(/[^A-Za-z0-9._-]/g, '_');
 
 const assertInside = (root: string, candidate: string): string => {
   const absolute = resolve(candidate);
@@ -112,16 +116,14 @@ export const planModelDownload = async ({
     ? model.quants.find((entry) => entry.label.toUpperCase() === quant.toUpperCase())
     : (model.quants.find((entry) => entry.recommended) ?? model.quants[0]);
   if (!selected) {
-    throw new CatalogError(
-      `${id} does not publish a "${quant}" quantisation`,
-      404,
-    );
+    throw new CatalogError(`${id} does not publish a "${quant}" quantisation`, 404);
   }
 
   const root = resolve(directory ?? (await resolveDownloadDirectory()));
   const folder = join(root, modelFolderName(id));
-  const chosen: readonly CatalogFile[] = includeProjector
-    ? [...selected.files, ...model.projectors]
+  const projector = includeProjector ? preferredProjector(model.projectors) : undefined;
+  const chosen: readonly CatalogFile[] = projector
+    ? [...selected.files, projector]
     : selected.files;
 
   const files = chosen.map((file) => {
@@ -137,7 +139,7 @@ export const planModelDownload = async ({
     };
   });
 
-  const primary = files.find((file) => !/^mmproj/i.test(file.repoPath.split('/').pop() ?? ''));
+  const primary = files.find((file) => !isProjectorFileName(file.repoPath.split('/').pop() ?? ''));
   if (!primary) throw new CatalogError('Selected quantisation has no model file', 404);
 
   return {
@@ -234,6 +236,20 @@ export const downloadModel = async (
       throw error;
     }
     completedBytes += file.sizeBytes;
+  }
+
+  const projector = plan.files.find((file) =>
+    isProjectorFileName(file.repoPath.split('/').pop() ?? ''),
+  );
+  if (projector) {
+    // An explicit mapping keeps vision on even when the folder already holds
+    // other projector variants from an earlier download.
+    const { llamaCpp } = await getGenerationConfig();
+    await updateGenerationConfig({
+      llamaCpp: {
+        projectorPaths: { ...llamaCpp.projectorPaths, [plan.primaryPath]: projector.destination },
+      },
+    });
   }
 
   onProgress?.({ phase: 'completed', primaryPath: plan.primaryPath });
