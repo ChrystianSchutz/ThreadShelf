@@ -21,6 +21,8 @@ import { ModelCombobox } from './ModelCombobox';
 import { NumberCombobox } from './NumberCombobox';
 import { LlamaLogPanel } from './LlamaLogPanel';
 import { useUIStore } from '../store';
+import { usePrivateChatStore } from '../private-chat-memory';
+import type { InterruptedGeneration } from '../private-chat-memory';
 
 interface ThreadContinuationProps {
   readonly sourceFile?: string;
@@ -34,7 +36,6 @@ interface ThreadContinuationProps {
   readonly initialMessages?: readonly ContinuationMessage[];
   readonly onCompleted?: () => void;
   readonly onMessagesChanged?: (messages: readonly ContinuationMessage[]) => void;
-  readonly onRecoveryChanged?: (hasRecovery: boolean) => void;
   readonly onModelChanged?: (model: string) => void;
   readonly showThreadShelfTurns?: boolean;
 }
@@ -43,18 +44,6 @@ const modelLabel = (model: GenerationModel): string => {
   const size = model.sizeBytes ? ` · ${(model.sizeBytes / 1024 ** 3).toFixed(1)} GB` : '';
   return `${model.loaded ? '● ' : ''}${model.name}${size}${model.vision ? ' · vision' : ''}`;
 };
-
-interface InterruptedGeneration {
-  readonly id: string;
-  readonly prompt: string;
-  readonly content: string;
-  readonly reasoning: string;
-  readonly model: string;
-  readonly provider: GenerationProviderId;
-  readonly error: string;
-  readonly stopped: boolean;
-  readonly createdAt: string;
-}
 
 const CONTEXT_SIZE_OPTIONS = [4096, 8192, 16_384, 32_768, 65_536, 131_072] as const;
 
@@ -106,7 +95,6 @@ export function ThreadContinuation({
   initialMessages = [],
   onCompleted,
   onMessagesChanged,
-  onRecoveryChanged,
   onModelChanged,
   showThreadShelfTurns = true,
 }: ThreadContinuationProps) {
@@ -121,7 +109,14 @@ export function ThreadContinuation({
   const [model, setModel] = useState('');
   const [openRouterSort, setOpenRouterSort] = useState<OpenRouterModelSort>('most-popular');
   const [freeOnly, setFreeOnly] = useState(true);
-  const [prompt, setPrompt] = useState('');
+  const privateDraft = usePrivateChatStore((state) => state.session.draft);
+  const setPrivateDraft = usePrivateChatStore((state) => state.setDraft);
+  const privateAttempts = usePrivateChatStore((state) => state.session.interruptedGenerations);
+  const addPrivateAttempt = usePrivateChatStore((state) => state.addInterruptedGeneration);
+  const dismissPrivateAttempt = usePrivateChatStore((state) => state.dismissInterruptedGeneration);
+  const [savedPrompt, setSavedPrompt] = useState('');
+  const prompt = ephemeral ? privateDraft : savedPrompt;
+  const setPrompt = (value: string) => (ephemeral ? setPrivateDraft(value) : setSavedPrompt(value));
   const [continuation, setContinuation] = useState<ContinuationMessage[]>([...initialMessages]);
   const [loadingModels, setLoadingModels] = useState(true);
   const [sending, setSending] = useState(false);
@@ -151,21 +146,19 @@ export function ThreadContinuation({
     threadId ||
     `${collection ?? 'chat'}:${sourceFile ?? 'new'}:${conversationKey ?? ''}`
   }`;
-  const [interruptedGenerations, setInterruptedGenerations] = useState<InterruptedGeneration[]>(
-    () => loadInterruptedGenerations(interruptedStorageKey),
+  const [storedAttempts, setStoredAttempts] = useState<InterruptedGeneration[]>(() =>
+    ephemeral ? [] : loadInterruptedGenerations(interruptedStorageKey),
   );
+  const interruptedGenerations = ephemeral ? privateAttempts : storedAttempts;
 
   useEffect(() => {
+    if (ephemeral) return;
     try {
-      sessionStorage.setItem(interruptedStorageKey, JSON.stringify(interruptedGenerations));
+      sessionStorage.setItem(interruptedStorageKey, JSON.stringify(storedAttempts));
     } catch {
       // The current in-memory transcript remains available if session storage is full or blocked.
     }
-  }, [interruptedGenerations, interruptedStorageKey]);
-
-  useEffect(() => {
-    onRecoveryChanged?.(interruptedGenerations.length > 0);
-  }, [interruptedGenerations.length, onRecoveryChanged]);
+  }, [ephemeral, interruptedStorageKey, storedAttempts]);
 
   useEffect(() => {
     if (!modelMenuOpen) return undefined;
@@ -582,7 +575,11 @@ export function ThreadContinuation({
         stopped,
         createdAt: new Date().toISOString(),
       };
-      setInterruptedGenerations((current) => [...current, attempt].slice(-8));
+      if (ephemeral) {
+        addPrivateAttempt(attempt);
+      } else {
+        setStoredAttempts((current) => [...current, attempt].slice(-8));
+      }
       if (stopped) {
         toast.info('Generation stopped.');
       } else {
@@ -768,9 +765,11 @@ export function ThreadContinuation({
                   className="btn sm ghost"
                   aria-label="Dismiss failed generation"
                   onClick={() =>
-                    setInterruptedGenerations((current) =>
-                      current.filter((candidate) => candidate.id !== attempt.id),
-                    )
+                    ephemeral
+                      ? dismissPrivateAttempt(attempt.id)
+                      : setStoredAttempts((current) =>
+                          current.filter((candidate) => candidate.id !== attempt.id),
+                        )
                   }
                 >
                   Dismiss
