@@ -803,6 +803,11 @@ Fixtures in `test/fixtures/` are synthetic and anonymized. See
 See [CONTRIBUTING.md](CONTRIBUTING.md): add tests for parser/ingest/search changes,
 keep real exports out of git, and run `npm run check` before opening a PR.
 
+## Vision API
+
+Local multimodal GGUFs can load a matching `mmproj` and receive inline images
+through the inference API. [Vision setup, examples and limits](docs/VISION.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

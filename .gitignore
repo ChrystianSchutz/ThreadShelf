@@ -32,6 +32,7 @@ yarn-error.log*
 dist/
 .cache/
 .claude/
+.kilo/
 .codex/
 client/node_modules/
 client/tsconfig.tsbuildinfo
@@ -75,3 +76,7 @@ data/
 *.png
 !docs/assets/
 !docs/assets/*.png
+
+# Local agent notes (board Q&A, second-AI review log)
+QA.md
+REVIEWS.md

@@ -389,3 +389,9 @@ address, e.g. `http://192.168.1.50:3001/v1`.
   external provider.
 - The model runtime itself (`llama-server`) listens on `127.0.0.1` with a
   random port and is never exposed.
+
+## Images / vision
+
+Send inline `image_url` data URLs with a model that has a matching projector.
+`GET /v1/models` includes `vision` when known. Remote image URLs are rejected;
+see [Vision](VISION.md) for setup, examples and limits.
