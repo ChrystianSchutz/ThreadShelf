@@ -87,6 +87,15 @@
     transform: translateX(0);
   }
 
+  // The drawer covers the page: give it a solid background and an explicit close button.
+  .sidebar {
+    background: var(--bg-0);
+    backdrop-filter: none;
+  }
+  .icon-btn.sb-close {
+    display: grid;
+  }
+
   .sidebar-scrim {
     position: fixed;
     inset: 0;
@@ -103,10 +112,13 @@
     opacity: 1;
     pointer-events: auto;
   }
-
 }
 
 @media (max-width: 640px) {
+  .sidebar,
+  .sidebar.rail {
+    width: 100vw;
+  }
   body {
     font-size: 15px;
   }

@@ -40,6 +40,8 @@ interface SidebarProps {
   readonly onDeleteCollection: (name: string) => void;
   readonly collections: readonly string[];
   readonly stats: Readonly<Record<string, CollectionStats>>;
+  /** Closes the drawer on narrow screens; the button is hidden when the sidebar is docked. */
+  readonly onClose: () => void;
 }
 
 export function Sidebar({
@@ -56,6 +58,7 @@ export function Sidebar({
   onDeleteCollection,
   collections,
   stats,
+  onClose,
 }: SidebarProps) {
   const [showEmpty, setShowEmpty] = useState(false);
   const [chatsOpen, setChatsOpen] = useState(view === 'chat');
@@ -106,6 +109,14 @@ export function Sidebar({
           <b>ThreadShelf</b>
           <span>v{__APP_VERSION__} · local</span>
         </div>
+        <button
+          className="icon-btn sb-close"
+          onClick={onClose}
+          aria-label="Close menu"
+          title="Close menu"
+        >
+          {Icons.close}
+        </button>
       </div>
 
       <section className="sb-chat-panel" aria-label="Conversations">

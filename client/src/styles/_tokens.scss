@@ -19,10 +19,11 @@
   --text-3: oklch(0.46 0.01 240);
   --text-4: oklch(0.34 0.01 240);
 
-  --accent: oklch(0.78 0.13 215);
-  --accent-soft: oklch(0.78 0.13 215 / 0.14);
-  --accent-border: oklch(0.78 0.13 215 / 0.35);
-  --accent-ink: oklch(0.18 0.04 240);
+  --accent: oklch(0.6 0.12 155);
+  --accent-hover: oklch(0.66 0.12 155);
+  --accent-soft: oklch(0.6 0.12 155 / 0.16);
+  --accent-border: oklch(0.6 0.12 155 / 0.4);
+  --accent-ink: oklch(0.98 0.01 155);
 
   --danger: oklch(0.7 0.16 25);
   --danger-soft: oklch(0.7 0.16 25 / 0.14);
@@ -72,11 +73,11 @@
   --fs-micro: 11px; // uppercase tags, keycaps, dot-separated meta
   --fs-meta: 11.5px; // secondary lines that are still meant to be read
 
-  --r-xs: 4px;
-  --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 12px;
-  --r-xl: 16px;
+  --r-xs: 3px;
+  --r-sm: 4px;
+  --r-md: 5px;
+  --r-lg: 7px;
+  --r-xl: 9px;
 
   --row-h: 32px;
   --pad-x: 14px;
@@ -103,10 +104,11 @@
   --text-3: oklch(0.6 0.012 240);
   --text-4: oklch(0.72 0.01 240);
 
-  --accent: oklch(0.6 0.13 220);
-  --accent-soft: oklch(0.6 0.13 220 / 0.12);
-  --accent-border: oklch(0.6 0.13 220 / 0.4);
-  --accent-ink: oklch(0.99 0.01 220);
+  --accent: oklch(0.48 0.11 155);
+  --accent-hover: oklch(0.43 0.11 155);
+  --accent-soft: oklch(0.48 0.11 155 / 0.12);
+  --accent-border: oklch(0.48 0.11 155 / 0.4);
+  --accent-ink: oklch(0.99 0.01 155);
 
   --danger: oklch(0.55 0.19 25);
   --danger-soft: oklch(0.55 0.19 25 / 0.12);

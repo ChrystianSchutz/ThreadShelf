@@ -861,6 +861,12 @@
     display: grid;
     flex: 0 0 auto;
   }
+
+  &.sb-close {
+    display: none;
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
 }
 
 // Main column

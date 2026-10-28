@@ -195,6 +195,7 @@ export function RootLayout() {
         onDeleteCollection={deleteCollection}
         collections={collections}
         stats={stats}
+        onClose={closeSidebar}
       />
 
       <button
