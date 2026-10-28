@@ -312,6 +312,11 @@
   background: var(--bg-1);
   color: var(--text-1);
 
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+
   &:hover {
     border-color: var(--accent-border);
     background: var(--accent-soft);
