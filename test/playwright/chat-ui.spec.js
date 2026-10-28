@@ -67,6 +67,25 @@ test.describe('Chat and generation UI', () => {
     await expect(appPage.locator('.sb-chat-history-list')).not.toContainText('Original title');
   });
 
+  test('clicking the chat that is already open keeps it on screen', async ({
+    appPage,
+    serverContext,
+  }) => {
+    const created = await appPage.request.post(`${serverContext.baseUrl}/api/generation/threads`, {
+      data: { title: 'Already open' },
+    });
+    expect(created.ok()).toBe(true);
+
+    // /chat opens the newest saved chat on its own; clicking it again in the
+    // sidebar used to blank the page.
+    await appPage.goto(`${serverContext.baseUrl}/chat`);
+    await expect(appPage.getByRole('heading', { name: 'Already open' })).toBeVisible();
+    const history = appPage.locator('#sidebarChatHistoryToggle');
+    if ((await history.getAttribute('aria-expanded')) !== 'true') await history.click();
+    await appPage.locator('.sb-chat-item', { hasText: 'Already open' }).click();
+    await expect(appPage.getByRole('heading', { name: 'Already open' })).toBeVisible();
+  });
+
   test('opens a saved chat from the sidebar and deletes it from its header', async ({
     appPage,
     serverContext,
