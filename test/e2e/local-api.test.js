@@ -265,6 +265,7 @@ describe('local model API (/v1) E2E', () => {
           object: 'model',
           owned_by: 'threadshelf',
           loaded: false,
+          vision: false,
         });
         assert.ok(!JSON.stringify(list).includes(modelsDir), 'model paths must not leak');
 

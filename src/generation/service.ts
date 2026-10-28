@@ -9,7 +9,7 @@ import type {
   GenerationProviderId,
 } from './types.js';
 
-const PROVIDERS = new Set<GenerationProviderId>(['llama-cpp', 'openrouter']);
+const PROVIDERS = new Set<GenerationProviderId>(['llama-cpp', 'openrouter', 'strata']);
 const ROLES = new Set<ChatMessage['role']>(['system', 'user', 'assistant']);
 const MAX_MESSAGES = 500;
 const MAX_CONTEXT_CHARS = 4_000_000;

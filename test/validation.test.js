@@ -268,7 +268,7 @@ describe('validateTurn / validateTurns', () => {
     );
     assert.throws(
       () => validateTurn({ ai: 'Hi', generationProvider: 'unknown' }, { index: 3 }),
-      /generationProvider.*llama-cpp or openrouter/,
+      /generationProvider.*llama-cpp, openrouter or strata/,
     );
   });
 

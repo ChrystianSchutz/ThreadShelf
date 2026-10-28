@@ -1804,14 +1804,15 @@
 
 .model-popover-providers {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   padding: 3px;
   border-radius: var(--r-sm);
   background: var(--bg-2);
 
   button {
-    height: 30px;
+    min-height: 30px;
+    padding: 4px 6px;
     border: 0;
     border-radius: var(--r-sm);
     background: transparent;
