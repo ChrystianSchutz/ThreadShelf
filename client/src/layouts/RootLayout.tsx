@@ -22,6 +22,7 @@ export function RootLayout() {
   const setActiveColl = useUIStore((s) => s.setActiveColl);
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
+  const sidebarHidden = useUIStore((s) => s.sidebarHidden);
   const cmdkOpen = useUIStore((s) => s.cmdkOpen);
   const setCmdkOpen = useUIStore((s) => s.setCmdkOpen);
   const newCollOpen = useUIStore((s) => s.newCollOpen);
@@ -168,7 +169,12 @@ export function RootLayout() {
   const activeChatId = typeof chatSearch?.thread === 'string' ? chatSearch.thread : '';
 
   return (
-    <div className="app" data-reading={isThread} data-sidebar-open={sidebarOpen}>
+    <div
+      className="app"
+      data-reading={isThread}
+      data-sidebar-open={sidebarOpen}
+      data-sidebar-hidden={sidebarHidden}
+    >
       <Sidebar
         view={currentView}
         setView={navigateTo}

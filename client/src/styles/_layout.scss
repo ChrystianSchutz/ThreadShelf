@@ -858,7 +858,7 @@
   }
 
   &.mobile-menu-btn {
-    display: none;
+    display: grid;
     flex: 0 0 auto;
   }
 }

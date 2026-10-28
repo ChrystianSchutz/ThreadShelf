@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { Icons } from '../icons';
 import { collLabel } from '../utils';
+import { SidebarToggle } from './SidebarToggle';
 
 const VIEW_LABELS: Record<string, string> = {
   search: 'Archive',
@@ -21,9 +21,7 @@ interface TopbarProps {
 export function Topbar({ view, activeColl, onMenu, actions }: TopbarProps) {
   return (
     <div className="topbar">
-      <button className="icon-btn mobile-menu-btn" onClick={onMenu} aria-label="Open sidebar">
-        {Icons.menu}
-      </button>
+      <SidebarToggle onMenu={onMenu} />
       <div className="crumbs">
         <span>{VIEW_LABELS[view]}</span>
         {view === 'search' && (

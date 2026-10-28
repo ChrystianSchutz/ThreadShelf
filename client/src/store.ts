@@ -28,6 +28,9 @@ interface UIState {
 
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  /** Desktop only: the docked sidebar is collapsed by the user. */
+  sidebarHidden: boolean;
+  setSidebarHidden: (hidden: boolean) => void;
 
   cmdkOpen: boolean;
   setCmdkOpen: (open: boolean) => void;
@@ -64,6 +67,8 @@ export const useUIStore = create<UIState>()(
 
       sidebarOpen: false,
       setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
+      sidebarHidden: false,
+      setSidebarHidden: (sidebarHidden) => set({ sidebarHidden }),
 
       cmdkOpen: false,
       setCmdkOpen: (cmdkOpen) => set({ cmdkOpen }),
@@ -128,6 +133,7 @@ export const useUIStore = create<UIState>()(
       partialize: (state) => ({
         theme: state.theme,
         activeColl: state.activeColl,
+        sidebarHidden: state.sidebarHidden,
         roles: state.roles,
         savedSearches: state.savedSearches,
         pinnedConversations: state.pinnedConversations,
