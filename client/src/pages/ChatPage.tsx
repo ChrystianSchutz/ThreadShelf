@@ -164,6 +164,9 @@ export function ChatPage() {
 
   useEffect(() => {
     if (!chatSearch.thread) return undefined;
+    // Reopening the chat that is already shown keeps it: resetting would clear
+    // it without a refetch, because activeId does not change.
+    if (chatSearch.thread === activeId) return undefined;
     const timeout = window.setTimeout(() => {
       setChat(undefined);
       setEditingTitle(false);
@@ -171,7 +174,7 @@ export function ChatPage() {
       setActiveId(chatSearch.thread ?? '');
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [chatSearch.thread]);
+  }, [chatSearch.thread, activeId]);
 
   useEffect(() => {
     document.querySelector<HTMLElement>('.main-scroll')?.scrollTo({ top: 0 });
