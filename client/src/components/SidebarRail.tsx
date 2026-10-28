@@ -2,7 +2,7 @@ import { Icons } from '../icons';
 import { collLabel } from '../utils';
 import { ThemeToggle } from './ThemeToggle';
 
-type RoutePath = '/search' | '/chat' | '/insights' | '/indexing' | '/mcp' | '/settings';
+type RoutePath = '/search' | '/chat' | '/insights' | '/notes' | '/indexing' | '/mcp' | '/settings';
 
 interface NavItem {
   readonly id: RoutePath;
@@ -15,6 +15,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { id: '/search', viewKey: 'search', label: 'Search archive', icon: Icons.search },
   { id: '/chat', viewKey: 'chat', label: 'New chat', icon: Icons.spark },
   { id: '/insights', viewKey: 'insights', label: 'Insights', icon: Icons.chart },
+  { id: '/notes', viewKey: 'notes', label: 'Notes (Markdown)', icon: Icons.folder },
   { id: '/indexing', viewKey: 'indexing', label: 'Add data', icon: Icons.download },
   { id: '/mcp', viewKey: 'mcp', label: 'MCP', icon: Icons.plug },
   { id: '/settings', viewKey: 'settings', label: 'Settings', icon: Icons.settings },

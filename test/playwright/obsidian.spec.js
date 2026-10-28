@@ -8,7 +8,7 @@ test('vault settings search, create and read-only toggle work', async ({ page, s
   await mkdir(vault);
   await writeFile(join(vault, 'context.md'), '# Synthetic PKM\nSearchable local knowledge');
   try {
-    await page.goto(`${serverContext.baseUrl}/settings`);
+    await page.goto(`${serverContext.baseUrl}/notes`);
     await page.locator('#obsidianVaultPath').fill(vault);
     await page.getByRole('button', { name: 'Save vault', exact: true }).click();
     await expect(page.getByText('Vault connected.', { exact: true })).toBeVisible();
@@ -109,7 +109,7 @@ test('vault search reports skipped files and rejected paths in the panel', async
     await page.request.put(`${serverContext.baseUrl}/api/obsidian/config`, {
       data: { vaultPath: vault, allowWrites: true },
     });
-    await page.goto(`${serverContext.baseUrl}/settings`);
+    await page.goto(`${serverContext.baseUrl}/notes`);
     await page.locator('#obsidianSearchInput').fill('needle');
     await page.getByRole('button', { name: 'Search vault', exact: true }).click();
     await expect(page.locator('.vault-results')).toContainText('1 results · 1 notes scanned');
@@ -138,7 +138,7 @@ test('composer vault controls show the read-only policy and toggle writes', asyn
     await page.goto(`${serverContext.baseUrl}/chat`);
     await page.locator('#sidebarPrivateChatButton').click();
     await expect(page.locator('#chatUseObsidian')).toBeDisabled();
-    await expect(page.getByRole('link', { name: 'Connect vault in Settings' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Connect your notes' })).toBeVisible();
     await page.request.put(`${serverContext.baseUrl}/api/obsidian/config`, {
       data: { vaultPath: vault },
     });

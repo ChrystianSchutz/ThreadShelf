@@ -1,5 +1,6 @@
 import type {
   VaultConfig,
+  DetectedNoteFolder,
   VaultNote,
   VaultSearch,
   VaultApproval,
@@ -134,6 +135,9 @@ export const readNdjsonStream = async <T = Record<string, unknown>>(
 export const api = {
   vaultConfig(signal?: AbortSignal) {
     return request<VaultConfig>('/api/obsidian/config', { signal });
+  },
+  detectNoteFolders(signal?: AbortSignal) {
+    return request<{ folders: DetectedNoteFolder[] }>('/api/obsidian/detected', { signal });
   },
   setVaultWritePermission(allowWrites: boolean) {
     return request<VaultConfig>('/api/obsidian/config', {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
-import type { VaultApproval, VaultConfig, VaultNote, VaultSearch } from '../types';
+import type { DetectedNoteFolder, VaultApproval, VaultConfig, VaultNote, VaultSearch } from '../types';
 import { DirectoryPicker } from './DirectoryPicker';
 import { Markdown } from './Markdown';
 
@@ -73,12 +73,12 @@ export function ObsidianChatControls({
           disabled={sending || !data?.vaultPath}
           onChange={(event) => onChange(event.target.checked)}
         />{' '}
-        Obsidian tools
+        Notes tools
       </label>
       {data?.vaultPath ? (
         <VaultWriteToggle config={data} />
       ) : (
-        <a href="/settings">Connect vault in Settings</a>
+        <a href="/notes">Connect your notes</a>
       )}
       {enabled && (
         <span className="vault-hint">
@@ -167,6 +167,10 @@ export function VaultDeleteApproval({
 
 export function ObsidianPanel() {
   const { data: config, error: configError } = useVaultConfig();
+  const { data: detected } = useQuery({
+    queryKey: ['note-folders'],
+    queryFn: ({ signal }) => api.detectNoteFolders(signal),
+  });
   const queryClient = useQueryClient();
   const [draftPath, setDraftPath] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -190,41 +194,65 @@ export function ObsidianPanel() {
       setBusy(false);
     }
   };
+  const connect = (vaultPath: string) =>
+    void operation(async () => {
+      // The server keeps the write choice for the same vault; a new vault starts read-only.
+      const next = await api.saveVaultConfig({ vaultPath });
+      queryClient.setQueryData(['obsidian-config'], next);
+      setDraftPath(null);
+      setResults(null);
+      setNote(null);
+      setNotice(next.vaultPath ? 'Vault connected.' : 'Vault disconnected.');
+    });
+  const suggestions = (detected?.folders ?? []).filter(
+    (folder: DetectedNoteFolder) => folder.path !== config?.vaultPath,
+  );
   return (
     <section className="panel vault-panel" id="obsidianPanel">
       <div className="panel-head">
-        <h3>Obsidian vault</h3>
-        <span className="sub">Local Markdown · live keyword search</span>
+        <h3>Markdown notes</h3>
+        <span className="sub">Obsidian · Logseq · OpenClaw · any folder of .md files</span>
       </div>
       <div className="panel-body">
         <p>
-          Connect your existing vault to search notes here or enable Obsidian tools in a
-          conversation. Notes stay in their original folders.
+          Connect a folder of Markdown notes (an Obsidian vault, a Logseq graph, an OpenClaw
+          workspace or any folder of .md files) to search it here and give chat models note tools.
+          Notes stay in their original folder.
         </p>
-        <label htmlFor="obsidianVaultPath">Vault directory</label>
+        {suggestions.length > 0 && (
+          <div className="vault-detected">
+            <span className="vault-detected-title">Found on this computer</span>
+            <ul>
+              {suggestions.map((folder) => (
+                <li key={folder.path}>
+                  <span className="vault-detected-name">
+                    <b>{folder.name}</b>
+                    <span>
+                      {folder.source} · {folder.path}
+                    </span>
+                  </span>
+                  <button
+                    className="btn"
+                    disabled={busy || !config}
+                    onClick={() => connect(folder.path)}
+                  >
+                    Connect
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <label htmlFor="obsidianVaultPath">Notes folder</label>
         <input
           id="obsidianVaultPath"
           value={path}
           onChange={(event) => setDraftPath(event.target.value)}
-          placeholder="Absolute path to your vault"
+          placeholder="Absolute path to your notes folder"
         />
-        <DirectoryPicker initialPath={path} onSelect={setDraftPath} label="Browse vault folders…" />
+        <DirectoryPicker initialPath={path} onSelect={setDraftPath} label="Browse folders…" />
         <div className="vault-actions">
-          <button
-            className="btn"
-            disabled={busy || !config}
-            onClick={() =>
-              void operation(async () => {
-                // The server keeps the write choice for the same vault; a new vault starts read-only.
-                const next = await api.saveVaultConfig({ vaultPath: path });
-                queryClient.setQueryData(['obsidian-config'], next);
-                setDraftPath(null);
-                setResults(null);
-                setNote(null);
-                setNotice(next.vaultPath ? 'Vault connected.' : 'Vault disconnected.');
-              })
-            }
-          >
+          <button className="btn" disabled={busy || !config} onClick={() => connect(path)}>
             Save vault
           </button>
           {config?.vaultPath && (

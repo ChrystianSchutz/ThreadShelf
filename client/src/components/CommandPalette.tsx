@@ -3,7 +3,7 @@ import type { CollectionStats } from '../types';
 import { Icons } from '../icons';
 import { collLabel } from '../utils';
 
-type RoutePath = '/search' | '/chat' | '/insights' | '/indexing' | '/mcp' | '/settings';
+type RoutePath = '/search' | '/chat' | '/insights' | '/notes' | '/indexing' | '/mcp' | '/settings';
 
 interface PaletteItem {
   readonly id: string;
@@ -80,6 +80,12 @@ export function CommandPalette({
           label: 'Insights',
           icon: Icons.chart,
           action: () => setView('/insights'),
+        },
+        {
+          id: 'go-notes',
+          label: 'Notes (Markdown)',
+          icon: Icons.folder,
+          action: () => setView('/notes'),
         },
         {
           id: 'go-indexing',

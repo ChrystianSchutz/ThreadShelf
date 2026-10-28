@@ -74,7 +74,7 @@ export function RootLayout() {
   );
 
   const navigateTo = useCallback(
-    (path: '/search' | '/chat' | '/insights' | '/indexing' | '/mcp' | '/settings') => {
+    (path: '/search' | '/chat' | '/insights' | '/notes' | '/indexing' | '/mcp' | '/settings') => {
       if (path === '/search') {
         void router.navigate({ to: '/search/$collection', params: { collection: activeColl } });
       } else if (path === '/chat') {

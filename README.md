@@ -115,11 +115,13 @@ to start a **Private conversation**. Its content stays in this tab's browser
 diagnostics are not persisted. Selecting OpenRouter still sends the conversation
 off-device. See [conversation generation](docs/GENERATION.md).
 
-### Obsidian / PKM integration
+### Markdown notes: Obsidian, Logseq, OpenClaw and other PKM folders
 
-Connect your existing vault in **Settings → Obsidian vault**. Search its Markdown
-notes locally, open the originals in Obsidian, and create new notes in the panel.
-Enable **Obsidian tools** in a conversation to let the selected model search,
+Open **Notes (Markdown)** in the sidebar and connect any folder of Markdown notes:
+an Obsidian vault, a Logseq graph, an OpenClaw workspace or a plain `.md` folder.
+Obsidian vaults and the OpenClaw workspace found on your computer are offered for
+one-click connection. Search the notes locally, open the originals in Obsidian, and
+create new notes on the page. Enable **Notes tools** in a conversation to let the selected model search,
 read, create and edit notes as part of a bounded tool-calling workflow.
 
 | Direction | Available workflow |
@@ -128,7 +130,7 @@ read, create and edit notes as part of a bounded tool-calling workflow.
 | **ThreadShelf → Obsidian** | Create Markdown notes or ask the agent to write conversation summaries with source links; edit existing notes using revision checks |
 
 **Allow vault writes** is **off by default**: a connected vault is read-only,
-including for MCP clients, until you enable writes in Settings or beside the
+including for MCP clients, until you enable writes on the Notes page or beside the
 composer. Connecting a different vault turns writes off again. Deletion always pauses the conversation for an explicit
 checkbox and confirmation showing the model and exact files. Approved deletions
 move notes to the vault's `.trash`; cancellation preserves them. MCP offers

@@ -3,6 +3,7 @@ import { RootLayout } from './layouts/RootLayout';
 import { SearchPage } from './pages/SearchPage';
 import { ThreadPage } from './pages/ThreadPage';
 import { IndexingPage } from './pages/IndexingPage';
+import { NotesPage } from './pages/NotesPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { McpPage } from './pages/McpPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -103,6 +104,12 @@ const indexingRoute = createRoute({
   component: IndexingPage,
 });
 
+const notesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/notes',
+  component: NotesPage,
+});
+
 const mcpRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/mcp',
@@ -138,6 +145,7 @@ const routeTree = rootRoute.addChildren([
   searchRoute,
   threadRoute,
   insightsRoute,
+  notesRoute,
   indexingRoute,
   mcpRoute,
   settingsRoute,

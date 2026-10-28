@@ -6,7 +6,6 @@ import { useCollectionsQuery } from '../queries';
 import { Topbar } from '../components/Topbar';
 import { SettingsView } from '../components/SettingsView';
 import { GenerationSettings } from '../components/GenerationSettings';
-import { ObsidianPanel } from '../components/ObsidianPanel';
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -32,7 +31,6 @@ export function SettingsPage() {
       <Topbar view="settings" activeColl={activeColl} onMenu={() => setSidebarOpen(true)} />
       <div className="main-scroll">
         <div className="view">
-          <ObsidianPanel />
           <GenerationSettings />
         </div>
         <SettingsView

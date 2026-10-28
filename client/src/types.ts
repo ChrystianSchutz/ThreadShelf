@@ -582,6 +582,11 @@ export interface VaultConfig {
   readonly vaultPath: string;
   readonly allowWrites: boolean;
 }
+export interface DetectedNoteFolder {
+  readonly source: 'Obsidian' | 'OpenClaw';
+  readonly name: string;
+  readonly path: string;
+}
 export interface VaultNote {
   readonly path: string;
   readonly content: string;

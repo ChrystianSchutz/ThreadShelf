@@ -8,6 +8,7 @@ import {
   vaultErrorMessage,
 } from '../obsidian/vault.js';
 import { decideVaultDeletion } from '../obsidian/approvals.js';
+import { detectNoteFolders } from '../obsidian/detect.js';
 
 const router = Router();
 router.use('/api/obsidian', requireLoopback);
@@ -22,6 +23,13 @@ router.get('/api/obsidian/config', async (_req, res) => {
     res.json(await getVaultConfig());
   } catch (error) {
     fail(res, 500, error, 'Cannot read Obsidian configuration');
+  }
+});
+router.get('/api/obsidian/detected', async (_req, res) => {
+  try {
+    res.json({ folders: await detectNoteFolders() });
+  } catch (error) {
+    fail(res, 500, error, 'Cannot look for note folders');
   }
 });
 router.put('/api/obsidian/config', async (req, res) => {

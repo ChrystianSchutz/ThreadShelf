@@ -1,12 +1,19 @@
-# Obsidian vault integration
+# Markdown notes (Obsidian vault integration)
 
-Connect an existing vault under **Settings → Obsidian vault**. Choose its absolute
-directory, save it, and search or create a Markdown note directly in the panel.
+Open **Notes (Markdown)** in the sidebar's Library section. Any folder of
+Markdown files works: an Obsidian vault, a Logseq graph, an OpenClaw workspace
+(`~/.openclaw/workspace`, with `MEMORY.md` and `memory/*.md`), Foam or a plain
+folder of `.md` files. Under **Found on this computer**, ThreadShelf lists the
+vaults registered in the Obsidian app (`obsidian.json`) and the OpenClaw workspace
+when they exist; **Connect** links one in one click. Otherwise choose the folder
+with **Browse folders…** or paste its absolute path and save it.
+
+Search the connected folder or create a Markdown note directly on the page.
 Search results include relative paths, headings and line numbers; **Open in
-Obsidian** opens the original note. Search reads current files, so changes made
-in Obsidian are visible on the next query without reimporting.
+Obsidian** opens the original note in Obsidian. Search reads current files, so
+changes made in another app are visible on the next query without reimporting.
 
-In a conversation, check **Obsidian tools** to give the selected model these
+In a conversation, check **Notes tools** to give the selected model these
 scoped tools:
 
 | Tool | Purpose |
@@ -33,8 +40,8 @@ and is excluded from stored conversation history.
 ## Write control and deletion
 
 **Allow vault writes** is **off by default**: a newly connected vault is
-read-only for every ThreadShelf agent, including MCP clients. Enable it in
-Settings or beside the conversation composer to allow creating and editing
+read-only for every ThreadShelf agent, including MCP clients. Enable it on the
+Notes page or beside the conversation composer to allow creating and editing
 notes; turn it off again at any time. While it is on, agents create and edit
 notes without asking again for each change: enabling it is the consent. Saving the same vault keeps your choice,
 connecting a different vault turns writes off again, and an existing saved
