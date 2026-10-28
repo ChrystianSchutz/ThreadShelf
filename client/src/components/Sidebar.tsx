@@ -18,7 +18,7 @@ interface NavItem {
 const LIBRARY_ITEMS: readonly NavItem[] = [
   { id: '/search', viewKey: 'search', label: 'Search archive', icon: Icons.search },
   { id: '/insights', viewKey: 'insights', label: 'Insights', icon: Icons.chart },
-  { id: '/notes', viewKey: 'notes', label: 'Notes (Markdown)', icon: Icons.folder },
+  { id: '/notes', viewKey: 'notes', label: 'Markdown/Obsidian', icon: Icons.folder },
 ];
 
 const MANAGE_ITEMS: readonly NavItem[] = [

@@ -15,7 +15,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { id: '/search', viewKey: 'search', label: 'Search archive', icon: Icons.search },
   { id: '/chat', viewKey: 'chat', label: 'New chat', icon: Icons.spark },
   { id: '/insights', viewKey: 'insights', label: 'Insights', icon: Icons.chart },
-  { id: '/notes', viewKey: 'notes', label: 'Notes (Markdown)', icon: Icons.folder },
+  { id: '/notes', viewKey: 'notes', label: 'Markdown/Obsidian', icon: Icons.folder },
   { id: '/indexing', viewKey: 'indexing', label: 'Add data', icon: Icons.download },
   { id: '/mcp', viewKey: 'mcp', label: 'MCP', icon: Icons.plug },
   { id: '/settings', viewKey: 'settings', label: 'Settings', icon: Icons.settings },

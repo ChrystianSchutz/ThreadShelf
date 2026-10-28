@@ -83,7 +83,7 @@ export function CommandPalette({
         },
         {
           id: 'go-notes',
-          label: 'Notes (Markdown)',
+          label: 'Markdown/Obsidian',
           icon: Icons.folder,
           action: () => setView('/notes'),
         },

@@ -1,6 +1,6 @@
 # Markdown notes (Obsidian vault integration)
 
-Open **Notes (Markdown)** in the sidebar's Library section. Any folder of
+Open **Markdown/Obsidian** in the sidebar's Library section. Any folder of
 Markdown files works: an Obsidian vault, a Logseq graph, an OpenClaw workspace
 (`~/.openclaw/workspace`, with `MEMORY.md` and `memory/*.md`), Foam or a plain
 folder of `.md` files. Under **Found on this computer**, ThreadShelf lists the
