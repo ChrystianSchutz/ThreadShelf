@@ -398,6 +398,7 @@ async function main(): Promise<void> {
       UPLOADS_DIR: join(tempRoot, '.uploads'),
       COLLECTIONS_PATH: join(tempRoot, '.collections.json'),
       MASTER_PROMPTS_PATH: join(tempRoot, 'master-prompts.json'),
+      OBSIDIAN_CONFIG_PATH: join(tempRoot, 'obsidian.json'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

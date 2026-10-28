@@ -33,6 +33,7 @@ export const test = base.extend({
           COLLECTIONS_PATH: join(tempRoot, '.collections.json'),
           GENERATION_CONFIG_PATH: join(tempRoot, 'generation.json'),
           MASTER_PROMPTS_PATH: join(tempRoot, 'master-prompts.json'),
+          OBSIDIAN_CONFIG_PATH: join(tempRoot, 'obsidian.json'),
           THREADSHELF_DISABLE_DEFAULT_MODEL_PATHS: '1',
           THREADSHELF_TOOLS_PATH: join(tempRoot, 'tools'),
           // Model downloads must never reach the developer's real model folder.
