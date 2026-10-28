@@ -9,6 +9,7 @@ import {
   symlink,
   link,
   readdir,
+  realpath,
   utimes,
 } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -71,7 +72,11 @@ describe('Obsidian vault policy', () => {
     await mkdir(other);
     await saveVaultConfig({ vaultPath: other, allowWrites: true });
     await setVaultWritePermission(false);
-    assert.deepEqual(await getVaultConfig(), { vaultPath: other, allowWrites: false });
+    // The saved path is canonical; on Windows CI the temp dir is an 8.3 short path.
+    assert.deepEqual(await getVaultConfig(), {
+      vaultPath: await realpath(other),
+      allowWrites: false,
+    });
     await assert.rejects(setVaultWritePermission('false'), /boolean/);
   });
   it('reclaims a write lock left by a crashed process but respects a fresh one', async () => {
