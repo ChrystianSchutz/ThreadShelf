@@ -30,7 +30,7 @@
 // Half of a 4K screen or a 2K screen: keep the sidebar docked, just narrower.
 @media (max-width: 1180px) {
   .app {
-    grid-template-columns: 212px 1fr;
+    grid-template-columns: 232px 1fr;
   }
   .sb-section {
     padding-inline: 10px;
@@ -62,6 +62,10 @@
       overflow: hidden;
       border-right: 0;
     }
+
+    .icon-btn.mobile-menu-btn {
+      display: grid;
+    }
   }
 }
 
@@ -92,7 +96,7 @@
     background: var(--bg-0);
     backdrop-filter: none;
   }
-  .icon-btn.sb-close {
+  .icon-btn.mobile-menu-btn {
     display: grid;
   }
 

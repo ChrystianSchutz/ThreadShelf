@@ -40,7 +40,7 @@ interface SidebarProps {
   readonly onDeleteCollection: (name: string) => void;
   readonly collections: readonly string[];
   readonly stats: Readonly<Record<string, CollectionStats>>;
-  /** Closes the drawer on narrow screens; the button is hidden when the sidebar is docked. */
+  /** Closes the drawer on narrow screens and hides the docked sidebar on wide ones. */
   readonly onClose: () => void;
 }
 
@@ -112,8 +112,8 @@ export function Sidebar({
         <button
           className="icon-btn sb-close"
           onClick={onClose}
-          aria-label="Close menu"
-          title="Close menu"
+          aria-label="Hide sidebar"
+          title="Hide sidebar"
         >
           {Icons.close}
         </button>

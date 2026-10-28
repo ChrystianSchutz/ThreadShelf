@@ -2,20 +2,22 @@ import { Icons } from '../icons';
 import { useUIStore } from '../store';
 
 /** Matches the drawer breakpoint in styles/_responsive.scss. */
-const DRAWER_QUERY = '(max-width: 820px)';
+export const DRAWER_QUERY = '(max-width: 820px)';
 
-/** Opens the drawer on narrow screens; hides or shows the docked sidebar on wider ones. */
+export const isDrawerViewport = (): boolean => window.matchMedia(DRAWER_QUERY).matches;
+
+/**
+ * Shown on narrow screens (opens the drawer) and on wide screens while the docked
+ * sidebar is hidden (shows it again); hidden otherwise by CSS.
+ */
 export function SidebarToggle({ onMenu }: { readonly onMenu: () => void }) {
-  const hidden = useUIStore((s) => s.sidebarHidden);
   const setHidden = useUIStore((s) => s.setSidebarHidden);
-  const drawer = typeof window !== 'undefined' && window.matchMedia(DRAWER_QUERY).matches;
-  const label = drawer ? 'Open sidebar' : hidden ? 'Show sidebar' : 'Hide sidebar';
   return (
     <button
       className="icon-btn mobile-menu-btn"
-      onClick={() => (window.matchMedia(DRAWER_QUERY).matches ? onMenu() : setHidden(!hidden))}
-      aria-label={label}
-      title={label}
+      onClick={() => (isDrawerViewport() ? onMenu() : setHidden(false))}
+      aria-label="Open sidebar"
+      title="Open sidebar"
     >
       {Icons.menu}
     </button>
