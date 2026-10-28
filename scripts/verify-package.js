@@ -65,7 +65,14 @@ const waitForHealth = async (baseUrl, child, log) => {
 const stopChild = async (child) => {
   if (child.exitCode !== null) return;
   const exited = new Promise((resolve) => child.once('exit', resolve));
-  child.kill('SIGTERM');
+  if (process.platform === 'win32') {
+    // On Windows the bin is a .cmd shim run through cmd.exe, so `child` is the
+    // shell, not the server. Killing only the shell leaves the server running
+    // with our stdout pipe open, and a piped `npm run pack:verify` never ends.
+    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+  } else {
+    child.kill('SIGTERM');
+  }
   await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
   if (child.exitCode === null) child.kill('SIGKILL');
 };
