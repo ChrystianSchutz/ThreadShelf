@@ -2,6 +2,13 @@
 
 All notable changes to ThreadShelf are documented here.
 
+## 1.4.1 — 2026-10-28
+
+### Fixed
+
+- Clicking the chat that is already open in the sidebar no longer leaves an
+  empty page.
+
 ## 1.4.0 — 2026-10-28
 
 ### Added
