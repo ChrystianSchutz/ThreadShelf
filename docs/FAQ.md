@@ -26,7 +26,7 @@ Do not commit:
 - Temp folders.
 - Screenshots with private chats.
 
-See [Security And Privacy](../SECURITY.md).
+See [Security And Privacy](https://github.com/ChrystianSchutz/ThreadShelf/blob/main/SECURITY.md).
 
 ## What is a collection?
 

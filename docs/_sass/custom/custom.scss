@@ -1,0 +1,24 @@
+// Square screenshots with a thin frame, as in the app.
+.main-content img {
+  border: 1px solid $border-color;
+  border-radius: 0;
+}
+
+.main-content pre.highlight,
+.main-content .highlighter-rouge {
+  border-radius: 4px;
+}
+
+// Quieter navigation: grey links, green only for the current page and on hover.
+.site-nav .nav-list .nav-list-item .nav-list-link {
+  color: $body-text-color;
+
+  &:hover,
+  &.active {
+    color: $link-color;
+  }
+}
+
+.site-title {
+  font-weight: 600;
+}
