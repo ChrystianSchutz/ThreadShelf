@@ -2,6 +2,46 @@
 
 All notable changes to ThreadShelf are documented here.
 
+## 1.4.0 — 2026-10-28
+
+### Added
+
+- **Markdown notes (Obsidian, Logseq, OpenClaw or any folder of `.md` files).**
+  A new **Markdown/Obsidian** page in the Library finds Obsidian vaults and an
+  OpenClaw workspace on this computer and connects one with a click. Search,
+  read and create notes in the app; chat models get note tools (search, read,
+  create, revision-checked edit, delete with confirmation into the vault's
+  `.trash`), and the MCP server exposes search, read, create and edit. Writes
+  are off until you enable them for that vault. See
+  [docs/OBSIDIAN.md](docs/OBSIDIAN.md).
+- **Image input** through llama.cpp for models with a multimodal projector;
+  only the projector a model needs is downloaded. See
+  [docs/VISION.md](docs/VISION.md).
+- **Strata provider**: an optional local generation provider (this computer
+  only, optional API key).
+- **Search benchmark**: `npm run bench:search` with a synthetic corpus and a
+  baseline check. See [docs/SEARCH_BENCHMARK.md](docs/SEARCH_BENCHMARK.md).
+
+### Changed
+
+- **Sidebar** stays docked on 2K and half-4K screens (narrower there) and can be
+  hidden with the X in its header; on phones it opens full width with a solid
+  background and a clear close button.
+- **Dark green accent** replaces the cyan one; smaller corner radii; a quieter
+  New chat button.
+
+### Fixed
+
+- **Private chats** live in memory only: they are gone on reload or when the
+  tab closes, and leftovers from older versions are cleared.
+- **Search filters** (role, origin, date, model) apply to the whole collection
+  instead of the first 200 candidates, so filtered searches no longer miss
+  matches. Keyword search on very common words can be slower on large archives.
+- The app no longer returns "Not Found" when it runs from a path that contains a
+  dot folder.
+- Local providers no longer follow redirects away from this computer.
+- `npm run pack:verify` no longer leaves its test server running on Windows.
+
 ## 1.3.0 — 2026-10-02
 
 ### Added
