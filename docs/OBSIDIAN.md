@@ -41,7 +41,7 @@ and is excluded from stored conversation history.
 
 **Allow vault writes** is **off by default**: a newly connected vault is
 read-only for every ThreadShelf agent, including MCP clients. Enable it on the
-Notes page or beside the conversation composer to allow creating and editing
+Markdown/Obsidian page or beside the conversation composer to allow creating and editing
 notes; turn it off again at any time. While it is on, agents create and edit
 notes without asking again for each change: enabling it is the consent. Saving the same vault keeps your choice,
 connecting a different vault turns writes off again, and an existing saved
