@@ -205,7 +205,7 @@ export interface RoleFilters {
   ai: boolean;
 }
 
-export type GenerationProviderId = 'llama-cpp' | 'openrouter';
+export type GenerationProviderId = 'llama-cpp' | 'openrouter' | 'strata';
 export type OpenRouterModelSort = 'default' | 'most-popular' | 'newest';
 export type LlamaAccelerationMode = 'auto' | 'cpu' | 'gpu' | 'hybrid' | 'multi-gpu';
 export type LlamaSplitMode = 'layer' | 'row';
@@ -216,6 +216,7 @@ export interface GenerationModel {
   readonly name: string;
   readonly provider: GenerationProviderId;
   readonly path?: string;
+  readonly vision?: boolean;
   readonly sizeBytes?: number;
   readonly contextLength?: number;
   readonly promptPrice?: string;
@@ -495,6 +496,7 @@ export interface ContinuationMessage {
 }
 
 interface GenerationChatCommonInput {
+  readonly useObsidian?: boolean;
   readonly provider: GenerationProviderId;
   readonly model: string;
   readonly prompt: string;
@@ -555,6 +557,12 @@ export interface GenerationResponse {
 }
 
 export type GenerationStreamEvent =
+  | { readonly type: 'vault-approval'; readonly approval: VaultApproval }
+  | {
+      readonly type: 'vault-tool';
+      readonly name: string;
+      readonly state: 'running' | 'done' | 'error';
+    }
   | {
       readonly type: 'status';
       readonly phase: 'preparing' | 'loading-model' | 'connecting' | 'generating' | 'saving';
@@ -570,3 +578,32 @@ export type GenerationStreamEvent =
     }
   | { readonly type: 'done'; readonly response: GenerationResponse }
   | { readonly type: 'error'; readonly error: string };
+
+export interface VaultConfig {
+  readonly vaultPath: string;
+  readonly allowWrites: boolean;
+}
+export interface DetectedNoteFolder {
+  readonly source: 'Obsidian' | 'OpenClaw';
+  readonly name: string;
+  readonly path: string;
+}
+export interface VaultNote {
+  readonly path: string;
+  readonly content: string;
+  readonly revision: string;
+}
+export interface VaultSearch {
+  readonly hits: readonly { path: string; title: string; snippet: string; line: number }[];
+  readonly scanned: number;
+  /** Markdown files that exist but were not served (unsafe name, link, too large). */
+  readonly skipped: number;
+  readonly truncated: boolean;
+}
+export interface VaultApproval {
+  readonly id: string;
+  readonly token: string;
+  readonly model: string;
+  readonly files: readonly string[];
+  readonly expiresAt: string;
+}

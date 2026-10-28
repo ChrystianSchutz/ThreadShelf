@@ -32,6 +32,7 @@ export const startApiServer = async ({
       COLLECTIONS_PATH: join(tempRoot, '.collections.json'),
       GENERATION_CONFIG_PATH: join(tempRoot, 'generation.json'),
       MASTER_PROMPTS_PATH: join(tempRoot, 'master-prompts.json'),
+      OBSIDIAN_CONFIG_PATH: join(tempRoot, 'obsidian.json'),
       THREADSHELF_DISABLE_DEFAULT_MODEL_PATHS: '1',
       THREADSHELF_TOOLS_PATH: join(tempRoot, 'tools'),
       // The download directory is always scanned, so a developer's models would leak in.
@@ -40,6 +41,8 @@ export const startApiServer = async ({
       OPENROUTER_API_KEY: '',
       // A developer's local API key would lock /v1 in every test.
       THREADSHELF_API_KEY: '',
+      // A developer's Strata server must never answer isolated tests.
+      STRATA_BASE_URL: 'http://127.0.0.1:9',
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],

@@ -1,0 +1,66 @@
+[
+  {
+    "uuid": "cache-invalidation",
+    "name": "Cache invalidation notes",
+    "chat_messages": [
+      { "sender": "human", "text": "How should we invalidate a stale cache after a document update?" },
+      { "sender": "assistant", "text": "Use a versioned cache key and evict the old entry after the write succeeds." }
+    ]
+  },
+  {
+    "uuid": "backup-recovery",
+    "name": "Restore a backup",
+    "chat_messages": [
+      { "sender": "human", "text": "What is the recovery procedure for a corrupted local archive?" },
+      { "sender": "assistant", "text": "Restore the last verified backup, then replay the incremental archive snapshots." }
+    ]
+  },
+  {
+    "uuid": "pagination",
+    "name": "Cursor pagination",
+    "chat_messages": [
+      { "sender": "human", "text": "How do I page through a changing result set?" },
+      { "sender": "assistant", "text": "Use a stable cursor with the creation time and record identifier; offset pagination can skip rows." }
+    ]
+  },
+  {
+    "uuid": "http-timeout",
+    "name": "Request timeout",
+    "chat_messages": [
+      { "sender": "human", "text": "Why did the upstream HTTP request time out?" },
+      { "sender": "assistant", "text": "The synthetic gateway returned HTTP 504 after its 30-second deadline. Retry with a bounded backoff." }
+    ]
+  },
+  {
+    "uuid": "error-code",
+    "name": "Synthetic error code",
+    "chat_messages": [
+      { "sender": "human", "text": "Investigate error code E_SYNC_7421 in the test worker." },
+      { "sender": "assistant", "text": "E_SYNC_7421 means the synthetic sync cursor expired. Start a fresh full scan." }
+    ]
+  },
+  {
+    "uuid": "file-name",
+    "name": "Configuration file",
+    "chat_messages": [
+      { "sender": "human", "text": "Which file controls the fixture parser?" },
+      { "sender": "assistant", "text": "The synthetic file parser-map.v2.yaml lists the import mappings." }
+    ]
+  },
+  {
+    "uuid": "version-string",
+    "name": "Version migration",
+    "chat_messages": [
+      { "sender": "human", "text": "Check compatibility for release v2.17.4-rc7 in this imaginary project." },
+      { "sender": "assistant", "text": "The synthetic v2.17.4-rc7 migration adds a nullable checkpoint field." }
+    ]
+  },
+  {
+    "uuid": "rare-model",
+    "name": "Rare model troubleshooting",
+    "chat_messages": [
+      { "sender": "human", "text": "Why does the fictional model borealis-13b-amber fail to start?" },
+      { "sender": "assistant", "model": "borealis-13b-amber", "text": "The borealis-13b-amber fixture needs a larger synthetic context buffer." }
+    ]
+  }
+]

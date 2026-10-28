@@ -263,60 +263,71 @@
 
 .sb-chat-panel {
   min-width: 0;
-  margin: 10px 8px 2px;
+  margin: 10px 10px 2px;
   border: 1px solid var(--border-0);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-sm);
   background: color-mix(in oklch, var(--bg-1) 82%, transparent);
   overflow: hidden;
 }
 
 .sb-chat-create {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(0, 1fr) 32px;
   gap: 6px;
   margin: 6px;
 }
 
 .sb-new-chat {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 9px;
-  min-height: 36px;
+  justify-content: center;
+  gap: 7px;
+  min-height: 32px;
   padding: 0 10px;
-  border: 1px solid var(--accent-border);
-  border-radius: var(--r-md);
-  background: var(--accent);
-  color: var(--accent-ink);
-  text-align: left;
+  border: 1px solid color-mix(in oklch, var(--accent) 85%, transparent);
+  border-radius: var(--r-sm);
+  background: color-mix(in oklch, var(--accent) 28%, transparent);
+  color: var(--accent-text);
   font-size: 13px;
-  font-weight: 600;
-  box-shadow: 0 10px 28px -18px var(--accent);
+  font-weight: 500;
+  line-height: 1;
+
+  svg {
+    display: block;
+    flex: 0 0 auto;
+    width: 15px;
+    height: 15px;
+  }
 
   span {
     min-width: 0;
   }
 
   &:hover {
-    filter: brightness(1.06);
+    background: color-mix(in oklch, var(--accent) 38%, transparent);
   }
 }
 
 .sb-private-chat {
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   place-items: center;
   border: 1px solid var(--border-1);
-  border-radius: var(--r-md);
-  background: var(--bg-1);
+  border-radius: var(--r-sm);
+  background: transparent;
   color: var(--text-1);
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
 
   &:hover {
     border-color: var(--accent-border);
     background: var(--accent-soft);
-    color: var(--accent-ink);
+    color: var(--accent-text);
   }
 }
 
@@ -438,7 +449,7 @@
 }
 
 .sb-cmdk {
-  margin: 8px 12px 4px;
+  margin: 8px 10px 4px;
   height: 30px;
   display: flex;
   align-items: center;
@@ -860,6 +871,12 @@
   &.mobile-menu-btn {
     display: none;
     flex: 0 0 auto;
+  }
+
+  &.sb-close {
+    display: grid;
+    flex: 0 0 auto;
+    margin-left: auto;
   }
 }
 

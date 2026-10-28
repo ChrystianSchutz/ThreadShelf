@@ -1,12 +1,12 @@
 import './env.js';
 import express from 'express';
-import { join } from 'path';
 import apiRouter from './routes/index.js';
 import { requireLocalOrigin } from './routes/local-origin.js';
 import { createLocalApiRouter } from './routes/local-api.js';
 import { startLocalApiNetworkListener } from './local-api-network.js';
 import { dataDir, packagePath } from './paths.js';
 import { startIndexRecovery } from './store.js';
+import { spaFallback } from './spa-fallback.js';
 
 const app = express();
 // Mounted ahead of the app-wide body parser: inference requests carry whole
@@ -30,16 +30,17 @@ app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-app.get(/.*/, (_req, res, next) => {
-  res.sendFile(join(PUBLIC, 'index.html'), (err) => {
-    if (err) next(err);
-  });
-});
+app.get(/.*/, spaFallback(PUBLIC));
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Express error', err);
   if (err.name === 'MulterError') {
     return res.status(400).json({ error: err.message });
+  }
+  // Body-parser failures (malformed JSON, a body over the limit) are client errors.
+  const status = (err as { status?: unknown }).status;
+  if (typeof status === 'number' && status >= 400 && status < 500) {
+    return res.status(status).json({ error: err.message });
   }
   res.status(500).json({ error: err?.message || 'Server error' });
 });

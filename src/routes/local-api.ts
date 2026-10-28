@@ -13,6 +13,7 @@ import {
   type LocalApiModel,
 } from '../generation/local-api.js';
 import { localOriginRejection, networkOriginRejection } from './local-origin.js';
+import { assertInlineImageInputs } from '../generation/vision.js';
 import { isLoopbackHttpRequest } from './loopback.js';
 import { abortOnDisconnect } from './stream-abort.js';
 
@@ -101,6 +102,7 @@ export const openAiModel = (model: LocalApiModel) => ({
   object: 'model',
   owned_by: 'threadshelf',
   loaded: model.loaded,
+  ...(model.vision === undefined ? {} : { vision: model.vision }),
 });
 
 const sha256 = (value: string): Buffer => createHash('sha256').update(value).digest();
@@ -241,7 +243,20 @@ export const createLocalApiRouter = (listener: LocalApiListener): Router => {
       );
     }
     try {
+      let images: number;
+      try {
+        images = assertInlineImageInputs(body);
+      } catch (error) {
+        throw new LocalApiError('invalid_request', (error as Error).message, 'messages');
+      }
       const model = await resolveLocalApiModel(body.model);
+      if (images && model.vision === false) {
+        throw new LocalApiError(
+          'invalid_request',
+          'This model cannot read images: it has no vision projector, or this llama-server build has no --mmproj. Download the matching mmproj (or set llamaCpp.projectorPaths) and update llama.cpp if needed.',
+          'model',
+        );
+      }
       if (controller.signal.aborted) return;
       const payload = JSON.stringify({ ...body, model: model.upstreamModel });
       await withLocalApiModel(model, (baseUrl) => {

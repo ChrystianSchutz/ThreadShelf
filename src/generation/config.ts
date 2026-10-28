@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { ValidationError } from '../validation.js';
 
 export interface LlamaCppConfig {
+  readonly projectorPaths?: Readonly<Record<string, string>>;
   readonly executablePath?: string;
   readonly baseUrl?: string;
   /** Paths explicitly saved by the user. */
@@ -78,6 +79,7 @@ export interface PublicGenerationConfig {
 interface StoredGenerationConfig {
   readonly schemaVersion?: number;
   readonly llamaCpp?: {
+    readonly projectorPaths?: Readonly<Record<string, string>>;
     readonly executablePath?: string;
     readonly baseUrl?: string;
     readonly modelDirectories?: readonly string[];
@@ -110,6 +112,7 @@ interface StoredGenerationConfig {
 
 export interface GenerationConfigUpdate {
   readonly llamaCpp?: {
+    readonly projectorPaths?: unknown;
     readonly executablePath?: unknown;
     readonly baseUrl?: unknown;
     readonly modelDirectories?: unknown;
@@ -149,9 +152,7 @@ export const MAX_IDLE_UNLOAD_MINUTES = 7 * 24 * 60;
 const warnedInvalidEnvironmentValues = new Set<string>();
 
 export const generationConfigPath = (): string =>
-  resolve(
-    process.env.GENERATION_CONFIG_PATH || dataPath('generationConfig'),
-  );
+  resolve(process.env.GENERATION_CONFIG_PATH || dataPath('generationConfig'));
 
 const normalizePaths = (paths: readonly string[]): string[] => [
   ...new Set(paths.map((path) => resolve(path.trim())).filter(Boolean)),
@@ -207,7 +208,7 @@ const parseLocalBaseUrl = (value: unknown, field: string): string | undefined =>
   }
   const host = url.hostname.toLowerCase();
   if (!['localhost', '127.0.0.1', '::1', '[::1]'].includes(host)) {
-    throw new ValidationError(`Invalid ${field}: llama.cpp endpoint must be loopback-only`, {
+    throw new ValidationError(`Invalid ${field}: local endpoint must be loopback-only`, {
       field,
     });
   }
@@ -227,6 +228,30 @@ const parsePath = (value: unknown, field: string): string | undefined => {
     throw new ValidationError(`Invalid ${field}: network paths are not allowed`, { field });
   }
   return resolve(trimmed);
+};
+
+const parseProjectorPaths = (value: unknown): Record<string, string> | undefined => {
+  if (value === undefined) return undefined;
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.keys(value).length > 1000
+  ) {
+    throw new ValidationError('Invalid projectorPaths', { field: 'projectorPaths' });
+  }
+  const result: Record<string, string> = {};
+  for (const [model, projector] of Object.entries(value)) {
+    const key = parsePath(model, 'projectorPaths.model');
+    const path = parsePath(projector, 'projectorPaths.projector');
+    if (!key || !path || !/\.gguf$/i.test(key) || !/\.gguf$/i.test(path)) {
+      throw new ValidationError('projectorPaths expects GGUF model/projector paths', {
+        field: 'projectorPaths',
+      });
+    }
+    result[key] = path;
+  }
+  return result;
 };
 
 const parseBoolean = (value: unknown, field: string): boolean | undefined => {
@@ -314,6 +339,37 @@ const resolveApiKey = (): string => sessionOpenRouterApiKey || process.env.OPENR
 
 export const getOpenRouterApiKey = (): string => resolveApiKey();
 
+export const DEFAULT_STRATA_BASE_URL = 'http://127.0.0.1:8080';
+
+/**
+ * Loopback base URL (without `/v1`) of a separately started Strata server.
+ * Throws a `ValidationError` naming `STRATA_BASE_URL` for an unusable value;
+ * callers report it instead of crashing, because it comes from the environment.
+ */
+export const parseStrataBaseUrl = (value: string | undefined): string => {
+  const field = 'STRATA_BASE_URL';
+  const normalized =
+    parseLocalBaseUrl(value?.trim() || DEFAULT_STRATA_BASE_URL, field) ?? DEFAULT_STRATA_BASE_URL;
+  const url = new URL(normalized);
+  if (url.username || url.password) {
+    throw new ValidationError(`Invalid ${field}: credentials in the URL are not supported`, {
+      field,
+    });
+  }
+  if (/[?#]/.test(normalized)) {
+    throw new ValidationError(`Invalid ${field}: query strings and fragments are not supported`, {
+      field,
+    });
+  }
+  return normalized.replace(/\/+$/, '').replace(/\/v1$/i, '');
+};
+
+export const getStrataBaseUrl = (): string => parseStrataBaseUrl(process.env.STRATA_BASE_URL);
+
+/** Optional key for a Strata server started with one; sent as a Bearer token, never logged. */
+export const getStrataApiKey = (): string | undefined =>
+  process.env.STRATA_API_KEY?.trim() || undefined;
+
 export const clearSessionOpenRouterApiKeyForTests = (): void => {
   sessionOpenRouterApiKey = '';
 };
@@ -384,6 +440,7 @@ export const getGenerationConfig = async (): Promise<PublicGenerationConfig> => 
   const stored = await readStoredConfig();
   return {
     llamaCpp: {
+      projectorPaths: parseProjectorPaths(stored.llamaCpp?.projectorPaths) ?? {},
       executablePath:
         process.env.LLAMA_CPP_SERVER ||
         process.env.LLAMA_SERVER_PATH ||
@@ -561,6 +618,8 @@ export const updateGenerationConfig = async (
   const next: StoredGenerationConfig = {
     schemaVersion: 2,
     llamaCpp: {
+      projectorPaths:
+        parseProjectorPaths(llamaUpdate?.projectorPaths) ?? current.llamaCpp?.projectorPaths ?? {},
       executablePath:
         llamaUpdate?.executablePath !== undefined
           ? parsePath(llamaUpdate.executablePath, 'executablePath')

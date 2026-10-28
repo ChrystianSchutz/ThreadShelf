@@ -88,6 +88,7 @@ const LAYOUT = {
   collections: { repo: ['.collections.json'], user: ['collections.json'] },
   generationConfig: { repo: ['.threadshelf', 'generation.json'], user: ['generation.json'] },
   masterPrompts: { repo: ['.threadshelf', 'master-prompts.json'], user: ['master-prompts.json'] },
+  obsidianConfig: { repo: ['.threadshelf', 'obsidian.json'], user: ['obsidian.json'] },
   generationErrorLog: {
     repo: ['.threadshelf', 'generation-errors.log'],
     user: ['generation-errors.log'],

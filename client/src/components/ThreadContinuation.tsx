@@ -20,6 +20,11 @@ import { ModelCatalogModal } from './ModelCatalogModal';
 import { ModelCombobox } from './ModelCombobox';
 import { NumberCombobox } from './NumberCombobox';
 import { LlamaLogPanel } from './LlamaLogPanel';
+import { useUIStore } from '../store';
+import { usePrivateChatStore } from '../private-chat-memory';
+import type { InterruptedGeneration } from '../private-chat-memory';
+import { ObsidianChatControls, VaultDeleteApproval } from './ObsidianPanel';
+import type { VaultApproval } from '../types';
 
 interface ThreadContinuationProps {
   readonly sourceFile?: string;
@@ -33,29 +38,23 @@ interface ThreadContinuationProps {
   readonly initialMessages?: readonly ContinuationMessage[];
   readonly onCompleted?: () => void;
   readonly onMessagesChanged?: (messages: readonly ContinuationMessage[]) => void;
-  readonly onRecoveryChanged?: (hasRecovery: boolean) => void;
   readonly onModelChanged?: (model: string) => void;
   readonly showThreadShelfTurns?: boolean;
 }
 
 const modelLabel = (model: GenerationModel): string => {
   const size = model.sizeBytes ? ` · ${(model.sizeBytes / 1024 ** 3).toFixed(1)} GB` : '';
-  return `${model.loaded ? '● ' : ''}${model.name}${size}`;
+  return `${model.loaded ? '● ' : ''}${model.name}${size}${model.vision ? ' · vision' : ''}`;
 };
 
-interface InterruptedGeneration {
-  readonly id: string;
-  readonly prompt: string;
-  readonly content: string;
-  readonly reasoning: string;
-  readonly model: string;
-  readonly provider: GenerationProviderId;
-  readonly error: string;
-  readonly stopped: boolean;
-  readonly createdAt: string;
-}
-
 const CONTEXT_SIZE_OPTIONS = [4096, 8192, 16_384, 32_768, 65_536, 131_072] as const;
+
+const emptyModelsMessage = (provider: GenerationProviderId): string =>
+  provider === 'llama-cpp'
+    ? 'No GGUF models found. Download one here or add a directory in Settings.'
+    : provider === 'strata'
+      ? 'Strata reported no model. Check that START-HERE.bat finished loading.'
+      : 'OpenRouter returned no models.';
 
 const loadInterruptedGenerations = (key: string): InterruptedGeneration[] => {
   try {
@@ -98,23 +97,34 @@ export function ThreadContinuation({
   initialMessages = [],
   onCompleted,
   onMessagesChanged,
-  onRecoveryChanged,
   onModelChanged,
   showThreadShelfTurns = true,
 }: ThreadContinuationProps) {
   const queryClient = useQueryClient();
   const masterPrompt = useActiveMasterPromptText();
   const [config, setConfig] = useState<GenerationConfigResponse | null>(null);
-  const [provider, setProvider] = useState<GenerationProviderId>('llama-cpp');
+  const rememberedProvider = useUIStore((state) => state.generationProvider);
+  const rememberProvider = useUIStore((state) => state.setGenerationProvider);
+  const [provider, setProvider] = useState<GenerationProviderId>(rememberedProvider);
   const [models, setModels] = useState<GenerationModel[]>([]);
   const [runtime, setRuntime] = useState<GenerationRuntimeStatus | null>(null);
   const [model, setModel] = useState('');
   const [openRouterSort, setOpenRouterSort] = useState<OpenRouterModelSort>('most-popular');
   const [freeOnly, setFreeOnly] = useState(true);
-  const [prompt, setPrompt] = useState('');
+  const privateDraft = usePrivateChatStore((state) => state.session.draft);
+  const setPrivateDraft = usePrivateChatStore((state) => state.setDraft);
+  const privateAttempts = usePrivateChatStore((state) => state.session.interruptedGenerations);
+  const addPrivateAttempt = usePrivateChatStore((state) => state.addInterruptedGeneration);
+  const dismissPrivateAttempt = usePrivateChatStore((state) => state.dismissInterruptedGeneration);
+  const [savedPrompt, setSavedPrompt] = useState('');
+  const prompt = ephemeral ? privateDraft : savedPrompt;
+  const setPrompt = (value: string) => (ephemeral ? setPrivateDraft(value) : setSavedPrompt(value));
   const [continuation, setContinuation] = useState<ContinuationMessage[]>([...initialMessages]);
   const [loadingModels, setLoadingModels] = useState(true);
   const [sending, setSending] = useState(false);
+  const [useObsidian, setUseObsidian] = useState(false);
+  const [vaultApproval, setVaultApproval] = useState<VaultApproval | null>(null);
+  const [vaultActivity, setVaultActivity] = useState<string[]>([]);
   const [pendingUser, setPendingUser] = useState('');
   const [streamedContent, setStreamedContent] = useState<string[]>([]);
   const [streamedReasoning, setStreamedReasoning] = useState<string[]>([]);
@@ -141,21 +151,19 @@ export function ThreadContinuation({
     threadId ||
     `${collection ?? 'chat'}:${sourceFile ?? 'new'}:${conversationKey ?? ''}`
   }`;
-  const [interruptedGenerations, setInterruptedGenerations] = useState<InterruptedGeneration[]>(
-    () => loadInterruptedGenerations(interruptedStorageKey),
+  const [storedAttempts, setStoredAttempts] = useState<InterruptedGeneration[]>(() =>
+    ephemeral ? [] : loadInterruptedGenerations(interruptedStorageKey),
   );
+  const interruptedGenerations = ephemeral ? privateAttempts : storedAttempts;
 
   useEffect(() => {
+    if (ephemeral) return;
     try {
-      sessionStorage.setItem(interruptedStorageKey, JSON.stringify(interruptedGenerations));
+      sessionStorage.setItem(interruptedStorageKey, JSON.stringify(storedAttempts));
     } catch {
       // The current in-memory transcript remains available if session storage is full or blocked.
     }
-  }, [interruptedGenerations, interruptedStorageKey]);
-
-  useEffect(() => {
-    onRecoveryChanged?.(interruptedGenerations.length > 0);
-  }, [interruptedGenerations.length, onRecoveryChanged]);
+  }, [ephemeral, interruptedStorageKey, storedAttempts]);
 
   useEffect(() => {
     if (!modelMenuOpen) return undefined;
@@ -196,9 +204,15 @@ export function ThreadContinuation({
 
   useEffect(() => {
     const controller = new AbortController();
+    // The provider chosen last time; read once so the first load does not re-run on tab changes.
+    const initialProvider = useUIStore.getState().generationProvider;
     void Promise.all([
       api.generationConfig(controller.signal),
-      api.generationModels('llama-cpp', { signal: controller.signal }),
+      api.generationModels(initialProvider, {
+        signal: controller.signal,
+        sort: 'most-popular',
+        freeOnly: true,
+      }),
     ])
       .then(([nextConfig, response]) => {
         setConfig(nextConfig);
@@ -212,9 +226,7 @@ export function ThreadContinuation({
           response.models.find((candidate) => candidate.loaded)?.id ?? response.models[0]?.id ?? '',
         );
         if (response.models.length === 0) {
-          setError(
-            'No GGUF models found. Download one from the model menu or add a directory in Settings.',
-          );
+          setError(emptyModelsMessage(initialProvider));
         }
       })
       .catch((cause: unknown) => {
@@ -305,11 +317,7 @@ export function ThreadContinuation({
           : (response.models[0]?.id ?? '');
       });
       if (response.models.length === 0) {
-        setError(
-          selectedProvider === 'llama-cpp'
-            ? 'No GGUF models found. Download one here or add a directory in Settings.'
-            : 'OpenRouter returned no models.',
-        );
+        setError(emptyModelsMessage(selectedProvider));
       }
     } catch (cause) {
       setModels([]);
@@ -359,12 +367,17 @@ export function ThreadContinuation({
 
   const changeProvider = (next: GenerationProviderId) => {
     setProvider(next);
+    rememberProvider(next);
     setModels([]);
     setRuntime(null);
     setModel('');
     setError('');
     setProgress(
-      next === 'llama-cpp' ? 'Discovering local GGUF models…' : 'Loading live OpenRouter models…',
+      next === 'llama-cpp'
+        ? 'Discovering local GGUF models…'
+        : next === 'strata'
+          ? 'Asking Strata which model it serves…'
+          : 'Loading live OpenRouter models…',
     );
     void loadModels(next, { sort: openRouterSort, freeOnly });
   };
@@ -453,12 +466,17 @@ export function ThreadContinuation({
     setProgress(
       provider === 'llama-cpp'
         ? 'Preparing llama.cpp. The first model load can take a while…'
-        : 'Preparing an OpenRouter request…',
+        : provider === 'strata'
+          ? 'Preparing a Strata request…'
+          : 'Preparing an OpenRouter request…',
     );
     const controller = new AbortController();
     requestController.current = controller;
+    setVaultApproval(null);
+    setVaultActivity([]);
     try {
       const common = {
+        useObsidian,
         provider,
         model,
         prompt: text,
@@ -479,6 +497,17 @@ export function ThreadContinuation({
                 conversationKey,
               },
         (event: GenerationStreamEvent) => {
+          if (event.type === 'vault-approval') {
+            setVaultApproval(event.approval);
+            setProgress('Waiting for your deletion decision…');
+          }
+          if (event.type === 'vault-tool') {
+            setVaultActivity((current) => [...current, `${event.name}: ${event.state}`].slice(-24));
+            if (event.state !== 'running') {
+              setVaultApproval(null);
+              setProgress('Continuing with vault tool results…');
+            }
+          }
           if (event.type === 'status') {
             setProgress(event.message);
             if (event.model) setStreamedModel(event.model);
@@ -526,11 +555,18 @@ export function ThreadContinuation({
               contextSize: contextWindowTokens,
               detail: 'The local model is loaded and ready.',
             }
-          : {
-              state: 'remote',
-              model: response.model,
-              detail: 'The response ran through OpenRouter.',
-            },
+          : provider === 'strata'
+            ? {
+                state: 'external',
+                model: response.model,
+                contextSize: contextWindowTokens,
+                detail: 'The response ran through the local Strata server.',
+              }
+            : {
+                state: 'remote',
+                model: response.model,
+                detail: 'The response ran through OpenRouter.',
+              },
       );
       if (provider === 'llama-cpp') {
         setModels((current) =>
@@ -558,7 +594,11 @@ export function ThreadContinuation({
         stopped,
         createdAt: new Date().toISOString(),
       };
-      setInterruptedGenerations((current) => [...current, attempt].slice(-8));
+      if (ephemeral) {
+        addPrivateAttempt(attempt);
+      } else {
+        setStoredAttempts((current) => [...current, attempt].slice(-8));
+      }
       if (stopped) {
         toast.info('Generation stopped.');
       } else {
@@ -567,6 +607,7 @@ export function ThreadContinuation({
     } finally {
       if (requestController.current === controller) requestController.current = null;
       setSending(false);
+      setVaultApproval(null);
       setPendingUser('');
       setStreamedContent([]);
       setStreamedReasoning([]);
@@ -744,9 +785,11 @@ export function ThreadContinuation({
                   className="btn sm ghost"
                   aria-label="Dismiss failed generation"
                   onClick={() =>
-                    setInterruptedGenerations((current) =>
-                      current.filter((candidate) => candidate.id !== attempt.id),
-                    )
+                    ephemeral
+                      ? dismissPrivateAttempt(attempt.id)
+                      : setStoredAttempts((current) =>
+                          current.filter((candidate) => candidate.id !== attempt.id),
+                        )
                   }
                 >
                   Dismiss
@@ -860,6 +903,23 @@ export function ThreadContinuation({
       )}
 
       <div className="continue-card">
+        {vaultActivity.length > 0 && (
+          <details className="vault-activity">
+            <summary>Vault tool activity</summary>
+            <ul>
+              {vaultActivity.map((activity, index) => (
+                <li key={index}>{activity}</li>
+              ))}
+            </ul>
+          </details>
+        )}
+        {vaultApproval && (
+          <VaultDeleteApproval
+            key={vaultApproval.id}
+            approval={vaultApproval}
+            onDecision={() => setVaultApproval(null)}
+          />
+        )}
         {error && <div className="banner err">{error}</div>}
         {sending && (
           <div className="generation-progress" role="status" aria-live="polite">
@@ -936,6 +996,15 @@ export function ThreadContinuation({
                   >
                     OpenRouter · external
                   </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={provider === 'strata'}
+                    data-active={provider === 'strata'}
+                    onClick={() => provider !== 'strata' && changeProvider('strata')}
+                  >
+                    Strata · local
+                  </button>
                 </div>
 
                 <div className="model-popover-pick">
@@ -1010,7 +1079,9 @@ export function ThreadContinuation({
                       {models.length.toLocaleString()}{' '}
                       {provider === 'llama-cpp'
                         ? 'GGUF models discovered'
-                        : 'live models available'}
+                        : provider === 'strata'
+                          ? 'model served by Strata'
+                          : 'live models available'}
                     </strong>
                     <span title={selectedModel?.path || selectedModel?.id}>
                       {selectedModel
@@ -1021,6 +1092,7 @@ export function ThreadContinuation({
                     {runtime && <span>{runtime.detail}</span>}
                   </div>
                   {runtime &&
+                    provider !== 'strata' &&
                     (runtime.state === 'starting' ||
                       runtime.state === 'ready' ||
                       (runtime.state === 'external' && Boolean(runtime.model))) && (
@@ -1098,7 +1170,9 @@ export function ThreadContinuation({
             <span className="composer-hint">
               {provider === 'llama-cpp'
                 ? 'Loopback-only llama-server'
-                : 'Sent off-device via OpenRouter'}
+                : provider === 'strata'
+                  ? 'Loopback-only Strata server'
+                  : 'Sent off-device via OpenRouter'}
             </span>
             {sending ? (
               <button className="btn danger" onClick={() => requestController.current?.abort()}>
@@ -1116,6 +1190,13 @@ export function ThreadContinuation({
             )}
           </div>
         </div>
+        <ObsidianChatControls
+          enabled={useObsidian}
+          onChange={setUseObsidian}
+          sending={sending}
+          external={provider === 'openrouter'}
+          ephemeral={ephemeral}
+        />
       </div>
       <ModelCatalogModal
         open={catalogOpen}

@@ -29,6 +29,7 @@ export interface LocalApiModel {
   readonly upstreamModel: string;
   /** In memory now (or loading); an external server's models always count as loaded. */
   readonly loaded: boolean;
+  readonly vision?: boolean;
 }
 
 export type LocalApiErrorKind =
@@ -87,8 +88,15 @@ const toLocalApiModels = (models: readonly GenerationModel[]): LocalApiModel[] =
           target: model.path,
           upstreamModel: model.name,
           loaded: Boolean(model.loaded),
+          vision: model.vision,
         }
-      : { id: model.id, target: model.id, upstreamModel: model.id, loaded: true },
+      : {
+          id: model.id,
+          target: model.id,
+          upstreamModel: model.id,
+          loaded: true,
+          vision: model.vision,
+        },
   );
   const idCounts = new Map<string, number>();
   for (const entry of entries) idCounts.set(entry.id, (idCounts.get(entry.id) ?? 0) + 1);

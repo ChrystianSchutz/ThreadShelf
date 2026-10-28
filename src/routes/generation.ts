@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import { generateObsidianChat } from '../generation/obsidian-agent.js';
 import {
   getGenerationConfig,
+  getStrataBaseUrl,
   llamaCppConfigChanged,
   updateGenerationConfig,
 } from '../generation/config.js';
@@ -57,7 +59,7 @@ import {
 } from '../validation.js';
 
 const router = Router();
-const providerIds = new Set<GenerationProviderId>(['llama-cpp', 'openrouter']);
+const providerIds = new Set<GenerationProviderId>(['llama-cpp', 'openrouter', 'strata']);
 const openRouterSorts = new Set(['default', 'most-popular', 'newest']);
 
 class GenerationConflictError extends Error {}
@@ -269,6 +271,14 @@ router.get('/api/generation/models', requireLoopback, async (req, res) => {
             detail: `Using an existing local server at ${config.llamaCpp.baseUrl}.`,
           }
         : getManagedLlamaStatus();
+    } else if (provider === 'strata') {
+      const loaded = models.find((model) => model.loaded);
+      runtime = {
+        state: 'external',
+        model: loaded?.id,
+        contextSize: loaded?.contextLength,
+        detail: `Using the Strata server at ${getStrataBaseUrl()}. Start and stop it outside ThreadShelf.`,
+      };
     } else {
       runtime = {
         state: 'remote',
@@ -524,6 +534,8 @@ router.post('/api/generation/chat', requireLoopback, async (req, res) => {
   });
   let releaseChat: (() => void) | undefined;
   try {
+    if (req.body?.useObsidian)
+      throw new BadRequestError('Vault tools require the streaming chat UI');
     const leased = await prepareChatWithLease(req.body as Record<string, unknown>);
     const prepared = leased.prepared;
     releaseChat = leased.release;
@@ -564,6 +576,9 @@ router.post('/api/generation/chat/stream', requireLoopback, async (req, res) => 
 
   let releaseChat: (() => void) | undefined;
   try {
+    // Validate before preparing, so a bad flag never loads a model or opens a lease.
+    if (req.body?.useObsidian !== undefined && typeof req.body.useObsidian !== 'boolean')
+      throw new BadRequestError('useObsidian must be a boolean');
     send({
       type: 'status',
       phase: 'preparing',
@@ -583,12 +598,22 @@ router.post('/api/generation/chat/stream', requireLoopback, async (req, res) => 
       message:
         prepared.provider === 'llama-cpp'
           ? 'Starting llama.cpp and loading the selected GGUF model. First load can take a while…'
-          : 'Connecting to OpenRouter and waiting for the first token…',
+          : prepared.provider === 'strata'
+            ? 'Sending to Strata and waiting for the first token…'
+            : 'Connecting to OpenRouter and waiting for the first token…',
       provider: prepared.provider,
       model: prepared.request.model,
     });
     let firstDelta = true;
-    const response = await generateChatStream(
+    const runGeneration =
+      req.body?.useObsidian === true
+        ? (
+            request: ChatRequest,
+            onDelta: Parameters<typeof generateChatStream>[1],
+            signal: AbortSignal,
+          ) => generateObsidianChat(request, onDelta, send, signal)
+        : generateChatStream;
+    const response = await runGeneration(
       prepared.request,
       (delta) => {
         if (firstDelta) {

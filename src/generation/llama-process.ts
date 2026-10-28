@@ -13,6 +13,7 @@ import type {
 } from './types.js';
 import { findLlamaExecutables } from './llama-install.js';
 import { discoverGgufModels, localGgufModelName } from './model-discovery.js';
+import { resolveVisionProjector } from './vision.js';
 import { readGgufMetadata } from './gguf-metadata.js';
 import { formatLlamaTuning, resolveLlamaTuning } from './llama-profile.js';
 
@@ -56,6 +57,7 @@ export interface LlamaDeviceInspection {
 }
 
 export interface LlamaRuntimeCapabilities {
+  readonly visionProjector?: boolean;
   readonly autoFit: boolean;
   readonly flashAttentionFlag: boolean;
   readonly flashAttentionValues: boolean;
@@ -90,6 +92,7 @@ export class LlamaModelBusyError extends Error {
 export const parseLlamaRuntimeCapabilities = (help: string): LlamaRuntimeCapabilities => {
   const flashLine = help.match(/^.*--flash-attn.*$/im)?.[0] ?? '';
   return {
+    ...(help.includes('--mmproj') ? { visionProjector: true } : {}),
     autoFit: help.includes('--fit'),
     flashAttentionFlag: Boolean(flashLine),
     flashAttentionValues: /on\s*[|,/]\s*off/i.test(flashLine),
@@ -555,6 +558,21 @@ const resolveExecutable = async (): Promise<string> => {
   return found[0];
 };
 
+/**
+ * Whether the llama-server that would launch can load a vision projector.
+ * `undefined` when no executable is available yet (nothing to ask), so callers
+ * can fall back to the projector files alone.
+ */
+export const llamaVisionSupported = async (): Promise<boolean | undefined> => {
+  let executable: string;
+  try {
+    executable = await resolveExecutable();
+  } catch {
+    return undefined;
+  }
+  return (await inspectLlamaRuntimeCapabilities(executable)).visionProjector === true;
+};
+
 const validateModel = async (model: string): Promise<string> => {
   const config = await getGenerationConfig();
   const discovered = await discoverGgufModels(effectiveModelDirectories(config.llamaCpp));
@@ -569,11 +587,19 @@ const startManagedServer = async (model: string, requestedRevision: number): Pro
   if (config.llamaCpp.baseUrl) return `${config.llamaCpp.baseUrl.replace(/\/$/, '')}/v1`;
   const modelPath = await validateModel(model);
   const executable = await resolveExecutable();
+  const availableProjector = await resolveVisionProjector(
+    modelPath,
+    effectiveModelDirectories(config.llamaCpp),
+    config.llamaCpp.projectorPaths,
+  );
   const [capabilities, deviceInspection, modelMetadata] = await Promise.all([
     inspectLlamaRuntimeCapabilities(executable),
     inspectLlamaDevices(executable),
     readGgufMetadata(modelPath),
   ]);
+  // An older llama-server without --mmproj still serves text; image requests
+  // then fail upstream with a visible error instead of blocking every chat.
+  const projector = capabilities.visionProjector ? availableProjector : undefined;
   const tuning = resolveLlamaTuning(config.llamaCpp, capabilities, modelMetadata);
   if (requestedRevision !== runtimeRevision) {
     throw new Error('llama.cpp model load was cancelled');
@@ -582,7 +608,10 @@ const startManagedServer = async (model: string, requestedRevision: number): Pro
     managed &&
     managed.child.exitCode === null &&
     managed.model === modelPath &&
-    managed.executable === executable
+    managed.executable === executable &&
+    (managed.arguments.includes('--mmproj')
+      ? managed.arguments[managed.arguments.indexOf('--mmproj') + 1]
+      : undefined) === projector
   ) {
     return `${managed.baseUrl}/v1`;
   }
@@ -603,6 +632,7 @@ const startManagedServer = async (model: string, requestedRevision: number): Pro
       capabilities,
     ),
     ...tuning.args,
+    ...(projector ? ['--mmproj', projector] : []),
   ];
   const child = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   child.stdin.end();
@@ -633,6 +663,12 @@ const startManagedServer = async (model: string, requestedRevision: number): Pro
       modelMetadata?.architecture ? ` for ${modelMetadata.architecture}` : ''
     }: ${formatLlamaTuning(tuning.entries)}\n`,
   );
+  if (availableProjector && !projector) {
+    appendLogText(
+      server,
+      '[ThreadShelf] Vision projector skipped: this llama-server build has no --mmproj. Update llama.cpp for image input.\n',
+    );
+  }
   if (deviceInspection.supported && deviceInspection.devices.length === 0) {
     appendLogText(
       server,

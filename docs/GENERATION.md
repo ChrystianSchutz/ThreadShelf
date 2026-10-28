@@ -1,17 +1,26 @@
 # Conversation generation
 
 Conversation generation is optional. It adds a plugin
-contract above two engines:
+contract above three engines:
 
 - `llama.cpp`, the primary and local engine;
+- Strata, a separately started local OpenAI-compatible server (see [Strata](#strata));
 - OpenRouter, an optional external API.
 
 **New chat** creates a locally saved ThreadShelf conversation by default. A
-separate ghost-icon action starts a **Private conversation** whose history exists
-only in browser `sessionStorage`, is never written to LanceDB or `__threads`, and
-is removed when the tab session ends. Original export files are never modified.
+separate ghost-icon action starts a **Private conversation** whose messages, draft,
+and recovery attempts exist only in that tab's memory. They survive in-app
+navigation but disappear on reload or in a new tab. They are never written to
+browser storage, LanceDB, or `__threads`. Original export files are never modified.
 
 ## Privacy boundary
+
+Enable **Obsidian tools** in the composer to search a connected vault and create
+or edit Markdown notes. **Allow vault writes** defaults to off (read-only) and can be enabled
+beside the composer. Deletion requires an explicit browser checkbox and decision
+for the listed files. OpenRouter also receives retrieved note text when vault
+tools are enabled. Private chats can still perform explicitly enabled vault
+writes. See [Obsidian integration](OBSIDIAN.md).
 
 Archive ingestion, embeddings, storage, search, and `llama.cpp` inference stay
 local. The OpenRouter option is different: selecting the
@@ -35,7 +44,7 @@ conversation.
 The **New chat** action opens a saved-by-default draft without creating an empty
 database row. The first send materializes the server-side conversation. The
 adjacent ghost icon is the explicit private alternative; its ephemeral generation
-request accepts bounded browser-session history but returns no persistence status
+request accepts bounded in-memory history but returns no persistence status
 and emits no `saving` phase. For a saved chat, the server:
 
 1. loads the saved turns instead of trusting browser-supplied history;
@@ -298,6 +307,27 @@ process only. It is not written to `.threadshelf/generation.json`. Neither the
 UI key nor the environment key is included in API responses; the API exposes
 only the `apiKeyConfigured` boolean. Restart the server after editing `.env`.
 
+## Strata
+
+The **Strata · local** tab talks to a Strata server you start yourself (for
+example with its `START-HERE.bat`). ThreadShelf never launches, stops or unloads
+it; it only reads `/health` and `/v1/models` and streams `/v1/chat/completions`.
+
+```dotenv
+STRATA_BASE_URL=http://127.0.0.1:8080
+# Only when the Strata server was started with a key:
+STRATA_API_KEY=
+```
+
+The default is `http://127.0.0.1:8080`; a trailing `/v1` is accepted. The URL
+must be loopback (`localhost`, `127.0.0.1` or `::1`), so conversation content
+stays on the machine. Redirects are refused, so a loopback server cannot
+forward a request elsewhere. The key, when set, is sent as a Bearer token to
+`/health`, `/v1/models` and chat, and never appears in API responses or logs.
+The model list shows what Strata currently serves, and
+turns generated through it are stored with `generationProvider: "strata"`.
+The last chosen provider tab is remembered in the browser.
+
 ## Runtime behavior
 
 When no existing llama.cpp URL is configured, ThreadShelf launches one managed
@@ -449,10 +479,11 @@ Streamed output uses immutable display blocks: only the current final block is
 updated, so selecting or copying earlier text is not disrupted by every token.
 There is also a **Copy current output** action during generation. If the backend
 exits, the stream fails, or the user presses Stop, ThreadShelf keeps the prompt,
-partial answer, and partial reasoning in a tab-session recovery card. Recovery
-cards are explicitly **not saved**, are excluded from later model context and
-LanceDB, and can be copied, dismissed, or restored to the composer with **Retry
-prompt**. They disappear when the tab session ends.
+partial answer, and partial reasoning in a recovery card. Recovery cards are
+explicitly **not saved**, are excluded from later model context and LanceDB,
+and can be copied, dismissed, or restored to the composer with **Retry prompt**.
+Private-chat recovery cards exist only in tab memory and disappear on reload;
+other recovery cards continue to use session storage.
 
 ## HTTP API
 
@@ -528,7 +559,7 @@ Example send within a created chat (history is loaded on the server):
 }
 ```
 
-Example anonymous send (history remains browser-session data and is not stored):
+Example anonymous send (history remains in tab memory and is not stored):
 
 ```json
 {
@@ -557,3 +588,9 @@ token count, paths, and provider IDs are bounded.
 - GPU compatibility depends on upstream release artifacts and local drivers.
 - A failed embedding update does not discard the saved exchange; the response
   reports a local indexing warning so it can be retried.
+
+## Vision
+
+Multimodal GGUFs load their matching projector and accept inline images through
+`/v1`. See [Vision setup and image requests](VISION.md). The chat composer remains
+text-only; `/v1` does not archive images.

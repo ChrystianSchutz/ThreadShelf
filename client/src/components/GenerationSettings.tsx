@@ -256,6 +256,23 @@ export function GenerationSettings() {
     if (!current.includes(path)) setDirectories([...current, path].join('\n'));
   };
 
+  // The form starts from placeholder defaults; editing or saving it before the stored
+  // settings arrive would overwrite them, so it appears only once they are loaded.
+  if (!data) {
+    return (
+      <section className="generation-settings" aria-labelledby="generation-settings-title">
+        <div className="section-h">
+          <h2 id="generation-settings-title">Conversation generation</h2>
+        </div>
+        {error ? (
+          <div className="banner err">{error}</div>
+        ) : (
+          <p role="status">Loading generation settings…</p>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className="generation-settings" aria-labelledby="generation-settings-title">
       <div className="section-h">

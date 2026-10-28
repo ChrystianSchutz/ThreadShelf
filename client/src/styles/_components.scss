@@ -26,11 +26,11 @@
   &.primary {
     background: var(--accent);
     color: var(--accent-ink);
-    border-color: oklch(0.85 0.13 215);
+    border-color: var(--accent-border);
     font-weight: 500;
     box-shadow: 0 8px 20px -10px var(--accent);
     &:hover {
-      background: oklch(0.82 0.13 215);
+      background: var(--accent-hover);
     }
   }
 

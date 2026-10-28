@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ThreadTurn, RoleFilters } from '../types';
 import { Icons } from '../icons';
+import { SidebarToggle } from './SidebarToggle';
 import { getProvider } from '../constants';
 import {
   collLabel,
@@ -287,9 +288,7 @@ export function ThreadReader({
       style={{ '--provider-color': provColor } as React.CSSProperties}
     >
       <div className="thread-bar">
-        <button className="icon-btn mobile-menu-btn" onClick={onMenu} aria-label="Open sidebar">
-          {Icons.menu}
-        </button>
+        <SidebarToggle onMenu={onMenu} />
         <button id="threadClose" className="thread-back" onClick={onBack} title="Esc">
           {Icons.arrowLeft}
           <span>Back</span>
