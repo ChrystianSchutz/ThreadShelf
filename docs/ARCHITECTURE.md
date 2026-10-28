@@ -134,6 +134,12 @@ Archive/index recovery (`src/store.ts`):
 - Manages LanceDB tables as collections.
 - Writes chunk rows.
 - Runs vector search.
+- Applies search filters to the whole collection, not to a candidate window:
+  readiness, role, origin and date are LanceDB prefilters, and the model filter
+  adds a `LIKE` prefilter before the exact portable-label check. If that check
+  (or dropping unsearchable chunks) leaves fewer than `n` results, the vector
+  window doubles up to `MAX_VECTOR_SEARCH_WINDOW` candidates. Keyword search
+  streams every match in Arrow batches and keeps a running top `n`.
 - Lists files and collection stats.
 - Persists normalized conversation turns in the internal `__threads` table at
   ingest time, so the thread view and the conversation listing keep working
@@ -335,6 +341,10 @@ npm run test:playwright
 
 The full `npm run check` gate also verifies repository privacy hygiene,
 documentation links, lint, TypeScript, and the production client build.
+
+The optional synthetic search-quality benchmark is documented in
+[SEARCH_BENCHMARK.md](SEARCH_BENCHMARK.md). Run it with `npm run bench:search -- --check`;
+it uses a temporary database and is not part of the standard check gate.
 
 ## Extension Points
 

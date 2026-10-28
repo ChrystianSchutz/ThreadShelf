@@ -62,6 +62,7 @@
     "parse": "tsx src/cli.ts",
     "ingest": "tsx src/ingest-cli.ts",
     "search": "tsx src/search-cli.ts",
+    "bench:search": "tsx scripts/search-benchmark.ts",
     "setup:llama": "tsx scripts/setup-llama-cpp.ts",
     "start": "tsx src/server.ts",
     "dev": "tsx --watch src/server.ts",

@@ -1,0 +1,50 @@
+[
+  {
+    "uuid": "long-index-rebuild",
+    "name": "Long index rebuild discussion",
+    "chat_messages": [
+      { "sender": "human", "text": "We need to rebuild the local index safely." },
+      { "sender": "assistant", "text": "Begin by listing the fixture source files and recording a checkpoint." },
+      { "sender": "human", "text": "Should we process all files at once?" },
+      { "sender": "assistant", "text": "Use small batches so memory stays bounded while old search results remain available." },
+      { "sender": "human", "text": "How should cancellation work?" },
+      { "sender": "assistant", "text": "Stop before publication and keep the previous index ready for readers." },
+      { "sender": "human", "text": "What happens after the replacement vectors are written?" },
+      { "sender": "assistant", "text": "Atomically publish the rebuilt index, then clear the synthetic pending marker." },
+      { "sender": "human", "text": "What if a fixture row is unreadable?" },
+      { "sender": "assistant", "text": "Retain the raw row for repair and exclude only its invalid search chunks." }
+    ]
+  },
+  {
+    "uuid": "long-download",
+    "name": "Long download discussion",
+    "chat_messages": [
+      { "sender": "human", "text": "Design a resumable download for a test model." },
+      { "sender": "assistant", "text": "Write bytes to a temporary part file and record the expected size." },
+      { "sender": "human", "text": "The connection broke in the middle." },
+      { "sender": "assistant", "text": "Resume from the last verified byte with an HTTP Range request." },
+      { "sender": "human", "text": "What validates the complete payload?" },
+      { "sender": "assistant", "text": "Compare the SHA-256 digest against the synthetic manifest before renaming the file." },
+      { "sender": "human", "text": "Should a cancelled transfer be retried?" },
+      { "sender": "assistant", "text": "Keep the part file so the next attempt can resume without fetching everything again." },
+      { "sender": "human", "text": "Where is download progress displayed?" },
+      { "sender": "assistant", "text": "Show completed bytes and the total expected bytes in the local status panel." }
+    ]
+  },
+  {
+    "uuid": "long-report",
+    "name": "Long report discussion",
+    "chat_messages": [
+      { "sender": "human", "text": "Prepare a synthetic report for a collection." },
+      { "sender": "assistant", "text": "Count conversations, chunks, and their supported source formats." },
+      { "sender": "human", "text": "Can we show daily activity?" },
+      { "sender": "assistant", "text": "Aggregate fixture timestamps into daily buckets and label empty days." },
+      { "sender": "human", "text": "How do we avoid exposing private paths?" },
+      { "sender": "assistant", "text": "Display portable file names and leave full machine paths out of the report." },
+      { "sender": "human", "text": "What about duplicate conversations?" },
+      { "sender": "assistant", "text": "Count a repeated conversation key once when preparing the summary." },
+      { "sender": "human", "text": "Where does the report go?" },
+      { "sender": "assistant", "text": "Save the synthetic report as a local JSON artifact." }
+    ]
+  }
+]

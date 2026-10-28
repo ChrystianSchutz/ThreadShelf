@@ -93,7 +93,8 @@ interface EmbeddedChunkRow extends Record<string, unknown> {
   readonly generationProvider: string;
 }
 
-const ensureChunkMetadataSchema = async (tbl: Table): Promise<void> => {
+// Returns the column names the table has afterwards.
+const ensureChunkMetadataSchema = async (tbl: Table): Promise<ReadonlySet<string>> => {
   const schema = await tbl.schema();
   const existing = new Set(schema.fields.map((field) => field.name));
   const missing = [
@@ -103,6 +104,8 @@ const ensureChunkMetadataSchema = async (tbl: Table): Promise<void> => {
     { name: 'createdInThreadShelf', valueSql: 'false' },
   ].filter((column) => !existing.has(column.name));
   if (missing.length) await tbl.addColumns(missing);
+  for (const column of missing) existing.add(column.name);
+  return existing;
 };
 
 // A merge is one LanceDB commit: an insertion failure cannot expose a delete.
@@ -1020,6 +1023,97 @@ export interface SearchOptions {
   readonly origin?: 'threadshelf' | 'archive';
 }
 
+// Filtered search must return the best matching rows of the whole collection,
+// not the best matches inside an arbitrary candidate window. Readiness, role,
+// origin and date filters are LanceDB prefilters (the default for vector
+// queries, so the nearest *matching* rows come back). The model filter adds a
+// LIKE prefilter that is a superset of the exact portable-label check, which
+// still runs in JS together with `isSearchableDocument`. When those JS checks
+// leave fewer than `n` rows from a full window, the window doubles, up to
+// this cap.
+export const MAX_VECTOR_SEARCH_WINDOW = 12_800;
+
+const RESULT_COLUMNS = [
+  'id',
+  'document',
+  'sourceFile',
+  'provider',
+  'conversationKey',
+  'title',
+  'role',
+  'turnIndex',
+  'model',
+  'createdAt',
+  'createdInThreadShelf',
+  'generationProvider',
+] as const;
+
+const toSearchResult = (row: Record<string, unknown>): SearchResult => ({
+  id: row.id as string,
+  document: (row.document as string) ?? '',
+  metadata: {
+    sourceFile: row.sourceFile as string,
+    provider: (row.provider as string) || undefined,
+    conversationKey: (row.conversationKey as string) || undefined,
+    title: (row.title as string) || undefined,
+    role: row.role as string,
+    turnIndex: row.turnIndex as string,
+    model: portableModelLabel((row.model as string) || undefined) || undefined,
+    createdAt: (row.createdAt as string) || undefined,
+    createdInThreadShelf: Boolean(row.createdInThreadShelf),
+    generationProvider: (row.generationProvider as string) || undefined,
+  },
+  ...(row._distance === undefined ? {} : { distance: row._distance as number }),
+});
+
+const escapeLikePattern = (value: string): string =>
+  escapeSqlString(value).replace(/[\\%_]/g, '\\$&');
+
+// `portableModelLabel` returns a substring of the raw value, so a lowercase
+// substring match on the raw column can only keep more rows than the exact
+// check. Non-ASCII needles skip the prefilter rather than trust SQL and JS to
+// agree on Unicode case folding.
+const modelPrefilter = (modelFilter: string): string =>
+  modelFilter && /^[\x20-\x7e]+$/.test(modelFilter)
+    ? `lower(model) LIKE '%${escapeLikePattern(modelFilter)}%'`
+    : '';
+
+interface ChunkFilter {
+  readonly where: string;
+  readonly modelFilter: string;
+  // False when a filter needs a column the table lacks: nothing can match.
+  readonly satisfiable: boolean;
+}
+
+const buildChunkFilter = async (
+  collection: string,
+  columns: ReadonlySet<string>,
+  opts: SearchOptions,
+  extra: readonly string[] = [],
+): Promise<ChunkFilter> => {
+  const modelFilter = normalizeModelFilter(opts.model);
+  const dateFilter = buildCreatedAtFilter(opts.from, opts.to);
+  const satisfiable =
+    (!modelFilter || columns.has('model')) &&
+    (!dateFilter || columns.has('createdAt')) &&
+    (!opts.origin || columns.has('createdInThreadShelf'));
+  const clauses = [
+    ...extra,
+    await readyIndexFilter(collection),
+    opts.roles?.length
+      ? `role IN (${opts.roles.map((role) => `'${escapeSqlString(role)}'`).join(', ')})`
+      : '',
+    dateFilter,
+    opts.origin ? `createdInThreadShelf = ${opts.origin === 'threadshelf'}` : '',
+    modelPrefilter(modelFilter),
+  ].filter(Boolean);
+  return { where: clauses.join(' AND '), modelFilter, satisfiable };
+};
+
+const passesExactFilters = (row: SearchResult, modelFilter: string): boolean =>
+  isSearchableDocument(row.document) &&
+  (!modelFilter || normalizeModelFilter(row.metadata.model).includes(modelFilter));
+
 export const searchCollection = async (
   collection: string,
   query: string,
@@ -1027,58 +1121,28 @@ export const searchCollection = async (
   queryEmbedding?: number[],
 ): Promise<SearchResult[]> => {
   const n = opts.n ?? 15;
-  const roles = opts.roles?.length ? opts.roles : null;
-  const modelFilter = normalizeModelFilter(opts.model);
-  const dateFilter = buildCreatedAtFilter(opts.from, opts.to);
   const keywordBoost = opts.keywordBoost === true;
-  const needsPostFilter = roles || modelFilter || keywordBoost;
-  const limit = needsPostFilter ? Math.min(Math.max(n * 8, 80), 200) : n;
+  // Keyword boost re-ranks a wider candidate set by exact substring presence.
+  const firstWindow = keywordBoost ? Math.min(Math.max(n * 8, 80), 200) : n;
   const embedding = queryEmbedding ?? (await embedOne(query));
 
   const tbl = await openTable(collection);
   if (!tbl) return [];
-  await ensureChunkMetadataSchema(tbl);
+  const columns = await ensureChunkMetadataSchema(tbl);
+  const filter = await buildChunkFilter(collection, columns, opts);
+  if (!filter.satisfiable) return [];
 
-  const filters = [
-    dateFilter,
-    await readyIndexFilter(collection),
-    opts.origin ? `createdInThreadShelf = ${opts.origin === 'threadshelf'}` : '',
-  ].filter(Boolean);
-  const results = await vectorSearchRows(tbl, embedding, limit, filters.join(' AND '));
-
-  let rows: SearchResult[] = results.map((row) => ({
-    id: row.id as string,
-    document: (row.document as string) ?? '',
-    metadata: {
-      sourceFile: row.sourceFile as string,
-      provider: (row.provider as string) || undefined,
-      conversationKey: (row.conversationKey as string) || undefined,
-      title: (row.title as string) || undefined,
-      role: row.role as string,
-      turnIndex: row.turnIndex as string,
-      model: portableModelLabel((row.model as string) || undefined) || undefined,
-      createdAt: (row.createdAt as string) || undefined,
-      createdInThreadShelf: Boolean(row.createdInThreadShelf),
-      generationProvider: (row.generationProvider as string) || undefined,
-    },
-    distance: row._distance as number | undefined,
-  }));
-
-  if (roles?.length) {
-    const roleSet = new Set(roles);
-    rows = rows.filter((r) => roleSet.has(r.metadata.role));
-  }
-
-  if (opts.origin) {
-    const expected = opts.origin === 'threadshelf';
-    rows = rows.filter((row) => row.metadata.createdInThreadShelf === expected);
-  }
-
-  rows = rows.filter((r) => isSearchableDocument(r.document));
-
-  if (modelFilter) {
-    rows = rows.filter((r) => normalizeModelFilter(r.metadata.model)?.includes(modelFilter));
-  }
+  const nearest = async (window: number): Promise<SearchResult[]> => {
+    const results = await vectorSearchRows(tbl, embedding, window, columns, filter.where);
+    const kept = results
+      .map(toSearchResult)
+      .filter((row) => passesExactFilters(row, filter.modelFilter));
+    const exhausted = results.length < window || window >= MAX_VECTOR_SEARCH_WINDOW;
+    return kept.length >= n || exhausted
+      ? kept
+      : nearest(Math.min(window * 2, MAX_VECTOR_SEARCH_WINDOW));
+  };
+  const rows = await nearest(firstWindow);
 
   if (keywordBoost && query.trim()) {
     const q = query.trim().toLowerCase();
@@ -1098,9 +1162,6 @@ export const searchCollection = async (
 // to LanceDB as a LIKE filter. Complements vector search for identifiers,
 // error strings, and code fragments the embedding model blurs away.
 
-const escapeLikePattern = (value: string): string =>
-  escapeSqlString(value).replace(/[\\%_]/g, '\\$&');
-
 const countOccurrences = (haystack: string, needle: string): number => {
   if (!needle) return 0;
   let count = 0;
@@ -1112,17 +1173,29 @@ const countOccurrences = (haystack: string, needle: string): number => {
   return count;
 };
 
-export const keywordResultComparator =
-  (query: string) =>
-  (a: SearchResult, b: SearchResult): number => {
-    const needle = query.trim().toLowerCase();
-    const diff =
-      countOccurrences(b.document.toLowerCase(), needle) -
-      countOccurrences(a.document.toLowerCase(), needle);
-    if (diff !== 0) return diff;
-    return (b.metadata.createdAt ?? '').localeCompare(a.metadata.createdAt ?? '');
-  };
+interface KeywordRanked {
+  readonly count: number;
+  readonly row: SearchResult;
+}
 
+const compareKeywordRank = (a: KeywordRanked, b: KeywordRanked): number =>
+  b.count - a.count ||
+  (b.row.metadata.createdAt ?? '').localeCompare(a.row.metadata.createdAt ?? '');
+
+const keywordRanked = (row: SearchResult, needle: string): KeywordRanked => ({
+  count: countOccurrences(row.document.toLowerCase(), needle),
+  row,
+});
+
+export const keywordResultComparator = (query: string) => {
+  const needle = query.trim().toLowerCase();
+  return (a: SearchResult, b: SearchResult): number =>
+    compareKeywordRank(keywordRanked(a, needle), keywordRanked(b, needle));
+};
+
+// Ranks every matching row, not a storage-order window: matches stream in
+// Arrow batches and only a running top-n is kept, so memory stays bounded by
+// the batch size. Ties keep storage order, as the stable sort did before.
 export const keywordSearchCollection = async (
   collection: string,
   query: string,
@@ -1134,55 +1207,27 @@ export const keywordSearchCollection = async (
 
   const tbl = await openTable(collection);
   if (!tbl) return [];
-  await ensureChunkMetadataSchema(tbl);
+  const columns = await ensureChunkMetadataSchema(tbl);
+  const filter = await buildChunkFilter(collection, columns, opts, [
+    `lower(document) LIKE '%${escapeLikePattern(needle)}%'`,
+  ]);
+  if (!filter.satisfiable) return [];
 
-  const clauses = [`lower(document) LIKE '%${escapeLikePattern(needle)}%'`];
-  const ready = await readyIndexFilter(collection);
-  if (ready) clauses.push(ready);
-  if (opts.roles?.length) {
-    clauses.push(`role IN (${opts.roles.map((role) => `'${escapeSqlString(role)}'`).join(', ')})`);
+  const matches = tbl
+    .query()
+    .where(filter.where)
+    .select(RESULT_COLUMNS.filter((column) => columns.has(column)))
+    .limit(Number.MAX_SAFE_INTEGER);
+
+  let top: KeywordRanked[] = [];
+  for await (const batch of matches) {
+    const ranked = (batch.toArray() as { toJSON(): Record<string, unknown> }[])
+      .map((record) => toSearchResult(record.toJSON()))
+      .filter((row) => passesExactFilters(row, filter.modelFilter))
+      .map((row) => keywordRanked(row, needle));
+    if (ranked.length) top = [...top, ...ranked].sort(compareKeywordRank).slice(0, n);
   }
-  const dateFilter = buildCreatedAtFilter(opts.from, opts.to);
-  if (dateFilter) clauses.push(dateFilter);
-  if (opts.origin) clauses.push(`createdInThreadShelf = ${opts.origin === 'threadshelf'}`);
-
-  // Cap the scan the same way post-filtered vector search does; ranking picks
-  // the best n from that window.
-  const limit = Math.min(Math.max(n * 8, 80), 200);
-
-  let results: Record<string, unknown>[];
-  try {
-    results = await tbl.query().where(clauses.join(' AND ')).limit(limit).toArray();
-  } catch (e) {
-    if (dateFilter && String((e as Error)?.message || '').includes('createdAt')) return [];
-    throw e;
-  }
-
-  const modelFilter = normalizeModelFilter(opts.model);
-  let rows: SearchResult[] = results.map((row) => ({
-    id: row.id as string,
-    document: (row.document as string) ?? '',
-    metadata: {
-      sourceFile: row.sourceFile as string,
-      provider: (row.provider as string) || undefined,
-      conversationKey: (row.conversationKey as string) || undefined,
-      title: (row.title as string) || undefined,
-      role: row.role as string,
-      turnIndex: row.turnIndex as string,
-      model: portableModelLabel((row.model as string) || undefined) || undefined,
-      createdAt: (row.createdAt as string) || undefined,
-      createdInThreadShelf: Boolean(row.createdInThreadShelf),
-      generationProvider: (row.generationProvider as string) || undefined,
-    },
-  }));
-
-  rows = rows.filter((r) => isSearchableDocument(r.document));
-  if (modelFilter) {
-    rows = rows.filter((r) => normalizeModelFilter(r.metadata.model)?.includes(modelFilter));
-  }
-
-  rows.sort(keywordResultComparator(query));
-  return rows.slice(0, n);
+  return top.map(({ row }) => row);
 };
 
 export interface ChunkMetaRow {
@@ -1334,67 +1379,20 @@ export const dropCollection = async (name: string): Promise<void> => {
 
 // --- internals ---
 
-const vectorSearchRows = async (
+// Selects only the result columns the table has, so tables indexed before
+// provider/model/createdAt existed still search. Filters stay prefilters.
+const vectorSearchRows = (
   tbl: Table,
   queryEmbedding: number[],
   limit: number,
+  columns: ReadonlySet<string>,
   rowFilter = '',
 ): Promise<Record<string, unknown>[]> => {
-  const base = () => {
-    const query = tbl.vectorSearch(queryEmbedding).distanceType('cosine');
-    const filtered = rowFilter ? query.where(rowFilter) : query;
-    return filtered.limit(limit);
-  };
-
-  try {
-    return await base()
-      .select([
-        'id',
-        'document',
-        'sourceFile',
-        'provider',
-        'conversationKey',
-        'title',
-        'role',
-        'turnIndex',
-        'model',
-        'createdAt',
-        'createdInThreadShelf',
-        'generationProvider',
-        '_distance',
-      ])
-      .toArray();
-  } catch (e) {
-    if (rowFilter && String((e as Error)?.message || '').includes('createdAt')) return [];
-    if (!String((e as Error)?.message || '').includes('No field named')) throw e;
-    try {
-      return await base()
-        .select([
-          'id',
-          'document',
-          'sourceFile',
-          'provider',
-          'conversationKey',
-          'title',
-          'role',
-          'turnIndex',
-          '_distance',
-        ])
-        .toArray();
-    } catch (inner) {
-      if (!String((inner as Error)?.message || '').includes('No field named')) throw inner;
-      try {
-        return await base()
-          .select(['id', 'document', 'sourceFile', 'provider', 'role', 'turnIndex', '_distance'])
-          .toArray();
-      } catch (legacy) {
-        if (!String((legacy as Error)?.message || '').includes('No field named')) throw legacy;
-        return base()
-          .select(['id', 'document', 'sourceFile', 'role', 'turnIndex', '_distance'])
-          .toArray();
-      }
-    }
-  }
+  const query = tbl.vectorSearch(queryEmbedding).distanceType('cosine');
+  return (rowFilter ? query.where(rowFilter) : query)
+    .limit(limit)
+    .select([...RESULT_COLUMNS.filter((column) => columns.has(column)), '_distance'])
+    .toArray();
 };
 
 const buildCreatedAtFilter = (from: string | undefined, to: string | undefined): string => {

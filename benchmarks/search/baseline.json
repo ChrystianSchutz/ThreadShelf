@@ -1,0 +1,263 @@
+{
+  "schemaVersion": 1,
+  "corpusSha256": "7ecf0b4de1a2c92fbaa116376676620d76d3f7125a500ad9823892e750025d65",
+  "queryCount": 20,
+  "tolerance": 0.1,
+  "modes": {
+    "semantic": {
+      "overall": {
+        "queries": 20,
+        "recall1": 0.825,
+        "recall5": 0.95,
+        "recall10": 1,
+        "mrr": 0.9071428571428571,
+        "p50Ms": 13.2718,
+        "p95Ms": 16.6358
+      },
+      "categories": {
+        "Cross-topic": {
+          "queries": 2,
+          "recall1": 0.25,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 0.75,
+          "p50Ms": 13.1972,
+          "p95Ms": 13.4977
+        },
+        "English": {
+          "queries": 3,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 16.6358,
+          "p95Ms": 31.0854
+        },
+        "Identifiers": {
+          "queries": 3,
+          "recall1": 0.6666666666666666,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 0.8333333333333334,
+          "p50Ms": 13.2718,
+          "p95Ms": 15.0386
+        },
+        "Long conversations": {
+          "queries": 3,
+          "recall1": 0.6666666666666666,
+          "recall5": 0.6666666666666666,
+          "recall10": 1,
+          "mrr": 0.7142857142857143,
+          "p50Ms": 13.1177,
+          "p95Ms": 13.1401
+        },
+        "Polish": {
+          "queries": 3,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 14.3759,
+          "p95Ms": 15.3245
+        },
+        "Rare models": {
+          "queries": 2,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 12.3925,
+          "p95Ms": 15.6053
+        },
+        "Thinking role": {
+          "queries": 2,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 10.7071,
+          "p95Ms": 11.5014
+        },
+        "Tool use": {
+          "queries": 2,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 13.1919,
+          "p95Ms": 15.1426
+        }
+      }
+    },
+    "keyword": {
+      "overall": {
+        "queries": 20,
+        "recall1": 0.3,
+        "recall5": 0.45,
+        "recall10": 0.45,
+        "mrr": 0.3583333333333333,
+        "p50Ms": 3.8376,
+        "p95Ms": 6.1409
+      },
+      "categories": {
+        "Cross-topic": {
+          "queries": 2,
+          "recall1": 0,
+          "recall5": 0,
+          "recall10": 0,
+          "mrr": 0,
+          "p50Ms": 2.8684,
+          "p95Ms": 3.4433
+        },
+        "English": {
+          "queries": 3,
+          "recall1": 0,
+          "recall5": 0,
+          "recall10": 0,
+          "mrr": 0,
+          "p50Ms": 3.8376,
+          "p95Ms": 6.1409
+        },
+        "Identifiers": {
+          "queries": 3,
+          "recall1": 0,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 0.38888888888888884,
+          "p50Ms": 5.0975,
+          "p95Ms": 11.4306
+        },
+        "Long conversations": {
+          "queries": 3,
+          "recall1": 0,
+          "recall5": 0,
+          "recall10": 0,
+          "mrr": 0,
+          "p50Ms": 3.397,
+          "p95Ms": 3.4287
+        },
+        "Polish": {
+          "queries": 3,
+          "recall1": 0,
+          "recall5": 0,
+          "recall10": 0,
+          "mrr": 0,
+          "p50Ms": 3.118,
+          "p95Ms": 3.2583
+        },
+        "Rare models": {
+          "queries": 2,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 4.4089,
+          "p95Ms": 5.0912
+        },
+        "Thinking role": {
+          "queries": 2,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 4.2937,
+          "p95Ms": 4.9497
+        },
+        "Tool use": {
+          "queries": 2,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 4.4812,
+          "p95Ms": 4.8865
+        }
+      }
+    },
+    "keyword-boost": {
+      "overall": {
+        "queries": 20,
+        "recall1": 0.775,
+        "recall5": 0.95,
+        "recall10": 1,
+        "mrr": 0.8821428571428571,
+        "p50Ms": 12.025,
+        "p95Ms": 14.8758
+      },
+      "categories": {
+        "Cross-topic": {
+          "queries": 2,
+          "recall1": 0.25,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 0.75,
+          "p50Ms": 11.7898,
+          "p95Ms": 13.2249
+        },
+        "English": {
+          "queries": 3,
+          "recall1": 0.6666666666666666,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 0.8333333333333334,
+          "p50Ms": 12.4517,
+          "p95Ms": 12.7879
+        },
+        "Identifiers": {
+          "queries": 3,
+          "recall1": 0.6666666666666666,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 0.8333333333333334,
+          "p50Ms": 14.8758,
+          "p95Ms": 15.2301
+        },
+        "Long conversations": {
+          "queries": 3,
+          "recall1": 0.6666666666666666,
+          "recall5": 0.6666666666666666,
+          "recall10": 1,
+          "mrr": 0.7142857142857143,
+          "p50Ms": 12.506,
+          "p95Ms": 14.1384
+        },
+        "Polish": {
+          "queries": 3,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 11.8907,
+          "p95Ms": 12.7465
+        },
+        "Rare models": {
+          "queries": 2,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 11.0959,
+          "p95Ms": 13.2358
+        },
+        "Thinking role": {
+          "queries": 2,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 9.0026,
+          "p95Ms": 10.2597
+        },
+        "Tool use": {
+          "queries": 2,
+          "recall1": 1,
+          "recall5": 1,
+          "recall10": 1,
+          "mrr": 1,
+          "p50Ms": 11.8927,
+          "p95Ms": 12.025
+        }
+      }
+    }
+  }
+}

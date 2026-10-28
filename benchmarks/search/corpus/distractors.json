@@ -1,0 +1,186 @@
+[
+  {
+    "uuid": "cache-ui-refresh",
+    "name": "Stale cache invalidation after document update",
+    "chat_messages": [
+      { "sender": "human", "text": "The document update banner still says stale cache. Should the browser refresh?" },
+      { "sender": "assistant", "text": "The support ticket label is stale cache invalidation after document update, but its only requested change is refreshing a preview badge when the browser regains focus. It does not cover invalidating stored cache entries." }
+    ]
+  },
+  {
+    "uuid": "cache-parser-version",
+    "name": "Document update cache",
+    "chat_messages": [
+      { "sender": "human", "text": "A parser update changed a document preview. Which version label should appear?" },
+      { "sender": "assistant", "text": "Show the parser version alongside the preview; the fixture does not describe cache eviction after a document write." }
+    ]
+  },
+  {
+    "uuid": "cache-expiry",
+    "name": "Invalidate stale cache",
+    "chat_messages": [
+      { "sender": "human", "text": "How should a synthetic cache entry expire after an idle period?" },
+      { "sender": "assistant", "text": "Expire entries after a fixed idle timeout. There is no document update or write event in this case." }
+    ]
+  },
+  {
+    "uuid": "backup-preview",
+    "name": "Recover a corrupted archive from backup",
+    "chat_messages": [
+      { "sender": "human", "text": "Can we preview a damaged archive before deciding whether a backup is needed?" },
+      { "sender": "assistant", "text": "List readable fixture entries in a temporary preview. This is a diagnostic view, not the restore procedure." }
+    ]
+  },
+  {
+    "uuid": "backup-upload",
+    "name": "Archive recovery and backup",
+    "chat_messages": [
+      { "sender": "human", "text": "Where should the example backup archive be uploaded for a support rehearsal?" },
+      { "sender": "assistant", "text": "Use the synthetic support drop folder. This conversation covers upload logistics, not recovering the local archive." }
+    ]
+  },
+  {
+    "uuid": "backup-checksum",
+    "name": "Corrupted archive recovery",
+    "chat_messages": [
+      { "sender": "human", "text": "How do I tell whether the test backup itself is corrupted?" },
+      { "sender": "assistant", "text": "Compare its checksum with the fixture manifest. Do not use this note as a restore plan." }
+    ]
+  },
+  {
+    "uuid": "pagination-offset",
+    "name": "Stable pagination when records change",
+    "chat_messages": [
+      { "sender": "human", "text": "Why did the sample offset pagination page number change?" },
+      { "sender": "assistant", "text": "The example inserts a row before page two, so the offset moves. This is a failure demonstration, not the stable cursor design." }
+    ]
+  },
+  {
+    "uuid": "pagination-ui",
+    "name": "Changing records pagination",
+    "chat_messages": [
+      { "sender": "human", "text": "How should the page buttons look while records are loading?" },
+      { "sender": "assistant", "text": "Disable the next button during loading. This is about the pager interface, not stable result ordering." }
+    ]
+  },
+  {
+    "uuid": "pagination-sort",
+    "name": "Stable page of records",
+    "chat_messages": [
+      { "sender": "human", "text": "How do we sort a static fixture table before printing it?" },
+      { "sender": "assistant", "text": "Sort the frozen rows by label. The data never changes during this export, so no pagination cursor is involved." }
+    ]
+  },
+  {
+    "uuid": "dedup-files",
+    "name": "Usuwanie zduplikowanych konwersacji po imporcie",
+    "chat_messages": [
+      { "sender": "human", "text": "Jak znaleźć dwa pliki JSON o tej samej nazwie po pobraniu archiwum?" },
+      { "sender": "assistant", "text": "Porównaj nazwy plików w katalogu pobierania. To porządkowanie plików, nie deduplikacja konwersacji w indeksie." }
+    ]
+  },
+  {
+    "uuid": "dedup-display",
+    "name": "Duplikaty po imporcie archiwum",
+    "chat_messages": [
+      { "sender": "human", "text": "Dlaczego lista rozmów pokazuje dwa podobne tytuły?" },
+      { "sender": "assistant", "text": "Dwa różne wątki mogą mieć taki sam tytuł. Nie łącz ich tylko z powodu nazwy; ten przykład dotyczy widoku listy." }
+    ]
+  },
+  {
+    "uuid": "dedup-attachments",
+    "name": "Zduplikowane dane importu",
+    "chat_messages": [
+      { "sender": "human", "text": "Jak usunąć kopie załącznika po imporcie?" },
+      { "sender": "assistant", "text": "Porównaj skróty plików załączników i usuń zbędne kopie binarne. Konwersacje pozostają oddzielne." }
+    ]
+  },
+  {
+    "uuid": "download-retry",
+    "name": "Resume interrupted model download",
+    "chat_messages": [
+      { "sender": "human", "text": "Should a failed test model download retry automatically after HTTP 503?" },
+      { "sender": "assistant", "text": "Retry with exponential backoff. This fixture does not describe resuming from a verified byte offset." }
+    ]
+  },
+  {
+    "uuid": "download-progress",
+    "name": "Interrupted model download",
+    "chat_messages": [
+      { "sender": "human", "text": "What should the progress bar show when a model download pauses?" },
+      { "sender": "assistant", "text": "Keep the last percentage visible with a paused label. This is only a user-interface state." }
+    ]
+  },
+  {
+    "uuid": "download-upload",
+    "name": "Resume a model transfer",
+    "chat_messages": [
+      { "sender": "human", "text": "Can a synthetic model upload resume after an interrupted connection?" },
+      { "sender": "assistant", "text": "The upload fixture uses server-assigned parts. It says nothing about downloading a local model." }
+    ]
+  },
+  {
+    "uuid": "download-auth",
+    "name": "Resume interrupted model download",
+    "chat_messages": [
+      { "sender": "human", "text": "Why was the model download interrupted at the sign-in page?" },
+      { "sender": "assistant", "text": "The fictional catalog requires a fresh test token. This note diagnoses authorization, not how to resume transferred bytes." }
+    ]
+  },
+  {
+    "uuid": "download-disk",
+    "name": "Interrupted model download recovery",
+    "chat_messages": [
+      { "sender": "human", "text": "The model download stopped when the example disk filled up. What should be checked?" },
+      { "sender": "assistant", "text": "Check free disk space in the synthetic destination. There is no range-request recovery procedure here." }
+    ]
+  },
+  {
+    "uuid": "download-ui-resume",
+    "name": "Resume interrupted model download button",
+    "chat_messages": [
+      { "sender": "human", "text": "Where is the resume control shown after pausing a test model download?" },
+      { "sender": "assistant", "text": "The button appears beside the progress bar. This is a layout note, not a resumable transfer implementation." }
+    ]
+  },
+  {
+    "uuid": "identifier-file-mention",
+    "name": "parser-map.v2.yaml",
+    "chat_messages": [
+      { "sender": "human", "text": "Should parser-map.v2.yaml appear in the example changelog?" },
+      { "sender": "assistant", "text": "Yes, list parser-map.v2.yaml as a changed fixture. The changelog does not explain which file controls the parser." }
+    ]
+  },
+  {
+    "uuid": "identifier-file-backup",
+    "name": "Fixture parser configuration file",
+    "chat_messages": [
+      { "sender": "human", "text": "Should we keep a copy of parser-map.v2.yaml before editing?" },
+      { "sender": "assistant", "text": "Keep parser-map.v2.yaml.bak in the synthetic workspace. This covers backup naming, not the parser mapping source." }
+    ]
+  },
+  {
+    "uuid": "identifier-error-ui",
+    "name": "E_SYNC_7421 investigation",
+    "chat_messages": [
+      { "sender": "human", "text": "What color should the E_SYNC_7421 status badge use?" },
+      { "sender": "assistant", "text": "Use the fixture warning color. This does not explain the sync cursor failure." }
+    ]
+  },
+  {
+    "uuid": "identifier-error-log",
+    "name": "E_SYNC_7421 test worker",
+    "chat_messages": [
+      { "sender": "human", "text": "Where does the fake worker print E_SYNC_7421?" },
+      { "sender": "assistant", "text": "It prints E_SYNC_7421 in the local fixture log. For the error meaning, consult the sync cursor note." }
+    ]
+  },
+  {
+    "uuid": "identifier-version-notes",
+    "name": "v2.17.4-rc7 compatibility",
+    "chat_messages": [
+      { "sender": "human", "text": "Where are the imaginary v2.17.4-rc7 release notes displayed?" },
+      { "sender": "assistant", "text": "Show v2.17.4-rc7 in the sample release list. This does not cover the checkpoint migration." }
+    ]
+  }
+]

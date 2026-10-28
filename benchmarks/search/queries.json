@@ -1,0 +1,22 @@
+[
+  { "id": "en-cache", "category": "English", "query": "stale cache invalidation after document update", "expectedConversationKeys": ["anthropic:cache-invalidation"] },
+  { "id": "en-backup", "category": "English", "query": "recover a corrupted archive from backup", "expectedConversationKeys": ["anthropic:backup-recovery"] },
+  { "id": "en-pagination", "category": "English", "query": "stable pagination when records change", "expectedConversationKeys": ["anthropic:pagination"] },
+  { "id": "pl-export", "category": "Polish", "query": "eksport historii rozmów do pliku JSON", "expectedConversationKeys": ["anthropic:polish-export"] },
+  { "id": "pl-dedup", "category": "Polish", "query": "usuwanie zduplikowanych konwersacji po imporcie", "expectedConversationKeys": ["anthropic:polish-dedup"] },
+  { "id": "pl-search", "category": "Polish", "query": "szukanie podobnych pytań na podstawie znaczenia", "expectedConversationKeys": ["anthropic:polish-search"] },
+  { "id": "id-error", "category": "Identifiers", "query": "E_SYNC_7421", "expectedConversationKeys": ["anthropic:error-code"] },
+  { "id": "id-file", "category": "Identifiers", "query": "parser-map.v2.yaml", "expectedConversationKeys": ["anthropic:file-name"] },
+  { "id": "id-version", "category": "Identifiers", "query": "v2.17.4-rc7", "expectedConversationKeys": ["anthropic:version-string"] },
+  { "id": "model-name", "category": "Rare models", "query": "borealis-13b-amber", "expectedConversationKeys": ["anthropic:rare-model"] },
+  { "id": "model-filter", "category": "Rare models", "query": "synthetic context buffer", "model": "borealis-13b-amber", "expectedConversationKeys": ["anthropic:rare-model"] },
+  { "id": "thinking-checksum", "category": "Thinking role", "query": "verify the synthetic checksum", "roles": ["thinking"], "expectedConversationKeys": ["anthropic:thinking-plan"] },
+  { "id": "thinking-stage", "category": "Thinking role", "query": "stage a replacement index before switching readers", "roles": ["thinking"], "expectedConversationKeys": ["anthropic:thinking-plan"] },
+  { "id": "tool-manifest", "category": "Tool use", "query": "fixture_manifest_reader", "roles": ["ai"], "expectedConversationKeys": ["anthropic:tool-summary"] },
+  { "id": "tool-queue", "category": "Tool use", "query": "fixture_queue_probe", "roles": ["ai"], "expectedConversationKeys": ["anthropic:tool-diagnostic"] },
+  { "id": "long-index", "category": "Long conversations", "query": "atomically publish rebuilt index", "expectedConversationKeys": ["anthropic:long-index-rebuild"] },
+  { "id": "long-download", "category": "Long conversations", "query": "resume interrupted model download", "expectedConversationKeys": ["anthropic:long-download"] },
+  { "id": "long-report", "category": "Long conversations", "query": "daily activity buckets in the collection report", "expectedConversationKeys": ["anthropic:long-report"] },
+  { "id": "cross-recovery", "category": "Cross-topic", "query": "recover the local archive after an index failure", "expectedConversationKeys": ["anthropic:backup-recovery", "anthropic:long-index-rebuild"] },
+  { "id": "cross-verify", "category": "Cross-topic", "query": "verify synthetic content before publishing a replacement", "expectedConversationKeys": ["anthropic:thinking-plan", "anthropic:long-download"] }
+]

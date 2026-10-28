@@ -1,0 +1,59 @@
+[
+  {
+    "uuid": "polish-export",
+    "name": "Eksport rozmów",
+    "chat_messages": [
+      { "sender": "human", "text": "Jak wyeksportować historię rozmów do pliku JSON?" },
+      { "sender": "assistant", "text": "Zapisz archiwum rozmów jako JSON i sprawdź kodowanie UTF-8." }
+    ]
+  },
+  {
+    "uuid": "polish-dedup",
+    "name": "Duplikaty danych",
+    "chat_messages": [
+      { "sender": "human", "text": "Jak usunąć duplikaty po ponownym imporcie archiwum?" },
+      { "sender": "assistant", "text": "Porównaj identyfikatory konwersacji i zastąp stare wpisy zamiast dodawać kopie." }
+    ]
+  },
+  {
+    "uuid": "polish-search",
+    "name": "Wyszukiwanie semantyczne",
+    "chat_messages": [
+      { "sender": "human", "text": "Czy wyszukiwanie znaczeniowe znajdzie podobne pytanie po polsku?" },
+      { "sender": "assistant", "text": "Wektorowe wyszukiwanie dopasowuje sens zapytania nawet przy innych słowach." }
+    ]
+  },
+  {
+    "uuid": "thinking-plan",
+    "name": "Reasoning trace",
+    "chat_messages": [
+      { "sender": "human", "text": "Plan a safe archive rebuild." },
+      { "sender": "assistant", "model": "borealis-13b-amber", "content": [
+        { "type": "thinking", "thinking": "First verify the synthetic checksum, then stage a replacement index before switching readers." },
+        { "type": "text", "text": "Stage the replacement index and switch readers after validation." }
+      ] }
+    ]
+  },
+  {
+    "uuid": "tool-summary",
+    "name": "Tool assisted inspection",
+    "chat_messages": [
+      { "sender": "human", "text": "Inspect the synthetic manifest for missing entries." },
+      { "sender": "assistant", "content": [
+        { "type": "tool_call", "name": "fixture_manifest_reader", "input": { "path": "synthetic/manifest.txt" } },
+        { "type": "text", "text": "I used fixture_manifest_reader to inspect the manifest. Entry alpha is missing from the synthetic list." }
+      ] }
+    ]
+  },
+  {
+    "uuid": "tool-diagnostic",
+    "name": "Tool assisted diagnostic",
+    "chat_messages": [
+      { "sender": "human", "text": "Check the example scheduler state with a tool." },
+      { "sender": "assistant", "content": [
+        { "type": "tool_call", "name": "fixture_queue_probe", "input": { "queue": "demo" } },
+        { "type": "text", "text": "The fixture_queue_probe found three synthetic jobs waiting in the demo queue." }
+      ] }
+    ]
+  }
+]
