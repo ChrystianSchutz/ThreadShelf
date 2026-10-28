@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { spawn } from 'child_process';
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
@@ -81,7 +81,11 @@ describe('MCP stdio E2E', () => {
       const tempRoot = await mkdtemp(join(tmpdir(), 'threadshelf-mcp-'));
       const child = spawn(process.execPath, ['--import', 'tsx', 'mcp/server.ts'], {
         cwd: repoRoot,
-        env: { ...process.env, LANCEDB_PATH: join(tempRoot, '.lancedb') },
+        env: {
+          ...process.env,
+          LANCEDB_PATH: join(tempRoot, '.lancedb'),
+          OBSIDIAN_CONFIG_PATH: join(tempRoot, 'obsidian.json'),
+        },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -105,6 +109,10 @@ describe('MCP stdio E2E', () => {
           'get_stats',
           'list_collections',
           'list_files',
+          'obsidian_create',
+          'obsidian_edit',
+          'obsidian_read',
+          'obsidian_search',
           'read_thread',
           'search',
         ]);
@@ -136,6 +144,88 @@ describe('MCP stdio E2E', () => {
         const resources = await client.send('resources/list', {});
         assert.ok(Array.isArray(resources.result.resourceTemplates));
         assert.ok(resources.result.resourceTemplates.length >= 3);
+        assert.deepStrictEqual(client.noise, [], 'MCP stdout must contain only JSON-RPC frames');
+      } catch (e) {
+        e.message += `\nMCP stderr:\n${stderr.join('')}`;
+        throw e;
+      } finally {
+        child.kill();
+        await once(child, 'exit');
+        await rm(tempRoot, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it(
+    'serves Obsidian search/read/create/edit over stdio, honours read-only and never deletes',
+    { timeout: 120_000 },
+    async () => {
+      const tempRoot = await mkdtemp(join(tmpdir(), 'threadshelf-mcp-vault-'));
+      const vault = join(tempRoot, 'vault');
+      const configPath = join(tempRoot, 'obsidian.json');
+      await mkdir(vault);
+      await writeFile(join(vault, 'source.md'), '# Source\nsynthetic mcp context');
+      await writeFile(configPath, JSON.stringify({ vaultPath: vault, allowWrites: false }));
+      const child = spawn(process.execPath, ['--import', 'tsx', 'mcp/server.ts'], {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          LANCEDB_PATH: join(tempRoot, '.lancedb'),
+          OBSIDIAN_CONFIG_PATH: configPath,
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const stderr = [];
+      child.stderr.on('data', (chunk) => stderr.push(String(chunk)));
+      try {
+        const client = makeClient(child);
+        await client.send('initialize', { protocolVersion: '2024-11-05', capabilities: {} });
+        client.notify('notifications/initialized', {});
+        const call = async (name, args) => {
+          const response = await client.send('tools/call', { name, arguments: args });
+          return {
+            isError: response.result.isError,
+            payload: JSON.parse(response.result.content[0].text),
+          };
+        };
+
+        const search = await call('obsidian_search', { query: 'synthetic context' });
+        assert.strictEqual(search.isError, false);
+        assert.strictEqual(search.payload.hits[0].path, 'source.md');
+        assert.strictEqual(search.payload.skipped, 0);
+        const read = await call('obsidian_read', { path: 'source.md' });
+        assert.strictEqual(read.payload.content, '# Source\nsynthetic mcp context');
+
+        const blocked = await call('obsidian_create', { path: 'mcp.md', content: 'x' });
+        assert.strictEqual(blocked.isError, true);
+        assert.match(blocked.payload.error, /read-only/);
+        await assert.rejects(readFile(join(vault, 'mcp.md')));
+
+        // The policy is re-read per call, so the UI toggle applies to a running MCP server.
+        await writeFile(configPath, JSON.stringify({ vaultPath: vault, allowWrites: true }));
+        const created = await call('obsidian_create', { path: 'mcp.md', content: '# MCP' });
+        assert.strictEqual(created.isError, false);
+        const edited = await call('obsidian_edit', {
+          path: 'mcp.md',
+          content: '# MCP edited',
+          revision: created.payload.revision,
+        });
+        assert.strictEqual(edited.payload.edited, true);
+        const stale = await call('obsidian_edit', {
+          path: 'mcp.md',
+          content: 'lost update',
+          revision: created.payload.revision,
+        });
+        assert.strictEqual(stale.isError, true);
+        assert.strictEqual(await readFile(join(vault, 'mcp.md'), 'utf8'), '# MCP edited');
+
+        const traversal = await call('obsidian_read', { path: '../obsidian.json' });
+        assert.strictEqual(traversal.isError, true);
+        assert.strictEqual(JSON.stringify(traversal.payload).includes(tempRoot), false);
+
+        const deletion = await call('obsidian_delete', { paths: ['mcp.md'] });
+        assert.strictEqual(deletion.isError, true);
+        assert.strictEqual(await readFile(join(vault, 'mcp.md'), 'utf8'), '# MCP edited');
         assert.deepStrictEqual(client.noise, [], 'MCP stdout must contain only JSON-RPC frames');
       } catch (e) {
         e.message += `\nMCP stderr:\n${stderr.join('')}`;

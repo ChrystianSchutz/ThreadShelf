@@ -15,7 +15,7 @@ MCP is useful when you want Cursor, Claude Desktop, or another MCP-aware client 
 - Start: `npm run mcp`
 - Data location: local LanceDB / ThreadShelf archive
 - Network service required for archive search: no
-- MCP tools: 5
+- MCP tools: 9
 
 The tools are:
 
@@ -24,6 +24,17 @@ The tools are:
 - `get_stats`
 - `search`
 - `read_thread`
+- `obsidian_search`
+- `obsidian_read`
+- `obsidian_create`
+- `obsidian_edit`
+
+Connect a vault in ThreadShelf Settings before using the Obsidian tools.
+The vault is read-only by default: `obsidian_create` and `obsidian_edit` are
+listed but fail until **Allow vault writes** is enabled there or in the chat
+composer. Deletion is available only through interactive
+ThreadShelf chat with explicit browser confirmation, and is never an MCP tool.
+See [Obsidian integration](OBSIDIAN.md).
 
 ## What MCP Uses
 
@@ -61,7 +72,7 @@ The server communicates over stdio. It is not an HTTP server and should not be o
 ## Tested MCP clients
 
 The automated compatibility test starts the real ThreadShelf process over stdio,
-initializes an MCP session, confirms that `tools/list` returns all five tools, and
+initializes an MCP session, confirms that `tools/list` returns all nine tools, and
 calls `list_collections` and `get_stats` against an isolated LanceDB directory.
 
 Claude Desktop and Cursor are documented configuration targets. Claude Desktop,

@@ -6,7 +6,7 @@ import { collLabel, compactModel, fmtRelative } from '../utils';
 import { ThemeToggle } from './ThemeToggle';
 import { GenerationRuntimeBadge } from './GenerationRuntimeBadge';
 
-type RoutePath = '/search' | '/chat' | '/insights' | '/indexing' | '/mcp' | '/settings';
+type RoutePath = '/search' | '/chat' | '/insights' | '/notes' | '/indexing' | '/mcp' | '/settings';
 
 interface NavItem {
   readonly id: RoutePath;
@@ -18,6 +18,7 @@ interface NavItem {
 const LIBRARY_ITEMS: readonly NavItem[] = [
   { id: '/search', viewKey: 'search', label: 'Search archive', icon: Icons.search },
   { id: '/insights', viewKey: 'insights', label: 'Insights', icon: Icons.chart },
+  { id: '/notes', viewKey: 'notes', label: 'Markdown/Obsidian', icon: Icons.folder },
 ];
 
 const MANAGE_ITEMS: readonly NavItem[] = [

@@ -5,6 +5,7 @@ import { collLabel } from '../utils';
 const VIEW_LABELS: Record<string, string> = {
   search: 'Archive',
   insights: 'Insights',
+  notes: 'Markdown/Obsidian',
   indexing: 'Add data',
   mcp: 'MCP',
   settings: 'Settings',

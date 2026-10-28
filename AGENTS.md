@@ -59,6 +59,7 @@ src/                Server + core logic (TypeScript, ESM, run via tsx)
     local-origin.ts        Host/Origin guards: `/api` + loopback `/v1`, and the network listener
     stream-abort.ts        Shared "client went away" AbortController for streamed routes
   services/         search, thread, collections, insights business logic
+  obsidian/         Local vault config, safe Markdown operations, scoped tools and browser deletion approvals
   generation/       Generation provider plugins, config, model discovery, llama wrapper
     downloader.ts          Shared resumable, hash-verifying downloader (runtime + models)
     model-catalog.ts       Read-only Hugging Face GGUF browser (public API, no token)
@@ -77,6 +78,7 @@ client/             React + Vite + TypeScript web UI (npm workspace)
     components/QuickSetupPanel.tsx    One-confirmation llama.cpp + model install
     components/NumberCombobox.tsx Typeable token-budget dropdown (presets + free entry)
     components/MasterPromptMenu.tsx  Master-prompt editor (server-stored, sent with every request)
+    components/ObsidianPanel.tsx    Vault settings/search/create, chat write toggle and deletion confirmation
     components/LocalApiPanel.tsx  Settings panel: `/v1` URLs, model ids, examples, key + network access
     components/LocalApiGuide.tsx  Guide modal: live status, Claude Code/Codex/DeepSeek setup, settings help
     components/NotFound.tsx       Router `defaultNotFoundComponent` for unknown URLs
@@ -150,7 +152,8 @@ touched the parser/ingest/search, `npm test && npm run test:e2e` is the minimum.
   A repository checkout keeps the historical repo-local dotfile layout; an
   installed package uses `%LOCALAPPDATA%\ThreadShelf` or `~/.threadshelf`.
   Explicit overrides (`LANCEDB_PATH`, `UPLOADS_DIR`, `THREADSHELF_DATA_DIR`, …)
-  always win. `test/packaging.test.js` fails the build if `process.cwd()`
+  always win. Serve package files with `res.sendFile(name, { root })`: the package may
+  live under a dot directory (`~/.npm/_npx`), which `send` otherwise refuses. `test/packaging.test.js` fails the build if `process.cwd()`
   reappears in `src/` or `mcp/`.
 - **No new runtime dependencies** without a clear reason — a goal of the project
   is to stay light and fully local. Never add anything that phones home.
@@ -292,6 +295,29 @@ locale or time zone only when that behavior is what the test is meant to verify.
    guaranteed" note for undocumented formats — AI Studio, OpenRouter, LM Studio).
 
 ## External network surfaces
+
+Obsidian vault access is optional, configured in `.threadshelf/obsidian.json`
+(`OBSIDIAN_CONFIG_PATH` override), and uses live local keyword search of ordinary
+Markdown files. The native chat tool loop is `src/generation/obsidian-agent.ts`;
+enable it explicitly with `useObsidian`. OpenRouter receives retrieved note text
+when enabled. Writes default to false (read-only) for a new or newly switched vault; the
+Settings/composer toggle enforces the policy across native chat and MCP, and an
+existing config keeps its explicit value. Writers take the in-vault
+`.threadshelf-write-lock` (owner token file; stale locks are reclaimed only via a
+per-instance marker + rename-to-tombstone identity check, never a blind rmdir).
+Edits preserve the note's POSIX mode. Search reports unsafe/unreadable `.md`
+files as `skipped`. Raw filesystem errors (absolute paths) are mapped by
+`vaultErrorMessage` before reaching a model, MCP client or browser. Unit tests get an isolated vault and config from
+`useTempVault()` in `test/shared/vault-env.js`; POSIX-only checks (modes, `:` in names)
+skip on Windows. Relative `.md` paths only; no hidden
+paths, traversal, symlinks/junctions or hard links. Creation never overwrites;
+editing requires a revision. Delete requests pause the stream for a browser-only
+capability plus explicit checkbox/decision, recheck revisions/policy, and move
+notes to vault `.trash`. Never expose an approval tool/capability to a model or
+MCP; MCP exposes only search/read/create/edit. Root changes invalidate pending
+operations. All server test helpers must set `OBSIDIAN_CONFIG_PATH` to isolated
+temp storage; tests must never connect to the developer's real vault. See
+`docs/OBSIDIAN.md` for bounds and limitations.
 
 Three, all opt-in and none of them carrying chat content:
 

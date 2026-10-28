@@ -9,12 +9,16 @@ function findTool(name) {
 }
 
 describe('MCP — protocol surface', () => {
-  it('declares the five expected tools', () => {
+  it('declares archive tools and the four safe vault tools', () => {
     const names = TOOL_DEFINITIONS.map((tool) => tool.name).sort();
     assert.deepStrictEqual(names, [
       'get_stats',
       'list_collections',
       'list_files',
+      'obsidian_create',
+      'obsidian_edit',
+      'obsidian_read',
+      'obsidian_search',
       'read_thread',
       'search',
     ]);
