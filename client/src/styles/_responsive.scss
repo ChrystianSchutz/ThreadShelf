@@ -27,7 +27,49 @@
   }
 }
 
+// Half of a 4K screen or a 2K screen: keep the sidebar docked, just narrower.
 @media (max-width: 1180px) {
+  .app {
+    grid-template-columns: 232px 1fr;
+  }
+  .sb-section {
+    padding-inline: 10px;
+  }
+  .chat-workspace {
+    padding-inline: clamp(12px, 2.5vw, 32px);
+  }
+  .thread-bar {
+    gap: 10px;
+  }
+  .thread-bar .bar-meta,
+  .thread-bar kbd {
+    display: none;
+  }
+  .thread-bar .path-crumb {
+    max-width: 28vw;
+  }
+  .view {
+    max-width: none;
+  }
+}
+
+@media (min-width: 821px) {
+  .app[data-sidebar-hidden='true'] {
+    grid-template-columns: 0 1fr;
+
+    .sidebar {
+      visibility: hidden;
+      overflow: hidden;
+      border-right: 0;
+    }
+
+    .icon-btn.mobile-menu-btn {
+      display: grid;
+    }
+  }
+}
+
+@media (max-width: 820px) {
   .app,
   .app[data-reading='true'] {
     grid-template-columns: 1fr;
@@ -49,6 +91,31 @@
     transform: translateX(0);
   }
 
+  // The drawer covers the page: give it a solid background and an explicit close button.
+  .sidebar {
+    background: var(--bg-0);
+    backdrop-filter: none;
+  }
+  .icon-btn.mobile-menu-btn {
+    display: grid;
+  }
+
+  .sb-brand {
+    height: 52px;
+    padding-left: 14px;
+  }
+
+  .icon-btn.sb-close {
+    width: 36px;
+    height: 36px;
+    margin-right: -4px;
+
+    svg {
+      width: 20px;
+      height: 20px;
+    }
+  }
+
   .sidebar-scrim {
     position: fixed;
     inset: 0;
@@ -65,26 +132,13 @@
     opacity: 1;
     pointer-events: auto;
   }
-
-  .icon-btn.mobile-menu-btn {
-    display: grid;
-  }
-  .thread-bar {
-    gap: 10px;
-  }
-  .thread-bar .bar-meta,
-  .thread-bar kbd {
-    display: none;
-  }
-  .thread-bar .path-crumb {
-    max-width: 28vw;
-  }
-  .view {
-    max-width: none;
-  }
 }
 
 @media (max-width: 640px) {
+  .sidebar,
+  .sidebar.rail {
+    width: 100vw;
+  }
   body {
     font-size: 15px;
   }

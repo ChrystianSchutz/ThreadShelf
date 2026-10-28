@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useUIStore } from '../store';
 import { useCollectionsQuery, useDeleteCollectionMutation } from '../queries';
 import { Sidebar } from '../components/Sidebar';
+import { isDrawerViewport } from '../components/SidebarToggle';
 import { CommandPalette } from '../components/CommandPalette';
 import { NewCollectionModal } from '../components/NewCollectionModal';
 import { Toaster } from '../components/Toaster';
@@ -22,6 +23,8 @@ export function RootLayout() {
   const setActiveColl = useUIStore((s) => s.setActiveColl);
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
+  const sidebarHidden = useUIStore((s) => s.sidebarHidden);
+  const setSidebarHidden = useUIStore((s) => s.setSidebarHidden);
   const cmdkOpen = useUIStore((s) => s.cmdkOpen);
   const setCmdkOpen = useUIStore((s) => s.setCmdkOpen);
   const newCollOpen = useUIStore((s) => s.newCollOpen);
@@ -168,7 +171,12 @@ export function RootLayout() {
   const activeChatId = typeof chatSearch?.thread === 'string' ? chatSearch.thread : '';
 
   return (
-    <div className="app" data-reading={isThread} data-sidebar-open={sidebarOpen}>
+    <div
+      className="app"
+      data-reading={isThread}
+      data-sidebar-open={sidebarOpen}
+      data-sidebar-hidden={sidebarHidden}
+    >
       <Sidebar
         view={currentView}
         setView={navigateTo}
@@ -189,6 +197,7 @@ export function RootLayout() {
         onDeleteCollection={deleteCollection}
         collections={collections}
         stats={stats}
+        onClose={() => (isDrawerViewport() ? closeSidebar() : setSidebarHidden(true))}
       />
 
       <button
