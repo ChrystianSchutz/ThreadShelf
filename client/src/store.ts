@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { safeLocalStorage } from './safe-storage';
 import type {
   FavoriteGenerationModel,
+  GenerationProviderId,
   PinnedConversation,
   RoleFilters,
   SavedSearch,
@@ -51,7 +52,12 @@ interface UIState {
 
   favoriteGenerationModels: FavoriteGenerationModel[];
   toggleFavoriteGenerationModel: (model: FavoriteGenerationModel) => void;
+
+  generationProvider: GenerationProviderId;
+  setGenerationProvider: (provider: GenerationProviderId) => void;
 }
+
+const GENERATION_PROVIDERS: readonly GenerationProviderId[] = ['llama-cpp', 'openrouter', 'strata'];
 
 export const useUIStore = create<UIState>()(
   persist(
@@ -123,6 +129,9 @@ export const useUIStore = create<UIState>()(
               : [model, ...state.favoriteGenerationModels].slice(0, 100),
           };
         }),
+
+      generationProvider: 'llama-cpp',
+      setGenerationProvider: (generationProvider) => set({ generationProvider }),
     }),
     {
       name: 'threadshelf:ui',
@@ -134,7 +143,21 @@ export const useUIStore = create<UIState>()(
         savedSearches: state.savedSearches,
         pinnedConversations: state.pinnedConversations,
         favoriteGenerationModels: state.favoriteGenerationModels,
+        generationProvider: state.generationProvider,
       }),
+      // localStorage may hold a provider from another version or hand edits; fall back to llama.cpp.
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<UIState>;
+        return {
+          ...current,
+          ...saved,
+          generationProvider: GENERATION_PROVIDERS.includes(
+            saved.generationProvider as GenerationProviderId,
+          )
+            ? (saved.generationProvider as GenerationProviderId)
+            : current.generationProvider,
+        };
+      },
     },
   ),
 );

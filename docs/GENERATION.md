@@ -1,9 +1,10 @@
 # Conversation generation
 
 Conversation generation is optional. It adds a plugin
-contract above two engines:
+contract above three engines:
 
 - `llama.cpp`, the primary and local engine;
+- Strata, a separately started local OpenAI-compatible server (see [Strata](#strata));
 - OpenRouter, an optional external API.
 
 **New chat** creates a locally saved ThreadShelf conversation by default. A
@@ -299,6 +300,27 @@ process only. It is not written to `.threadshelf/generation.json`. Neither the
 UI key nor the environment key is included in API responses; the API exposes
 only the `apiKeyConfigured` boolean. Restart the server after editing `.env`.
 
+## Strata
+
+The **Strata · local** tab talks to a Strata server you start yourself (for
+example with its `START-HERE.bat`). ThreadShelf never launches, stops or unloads
+it; it only reads `/health` and `/v1/models` and streams `/v1/chat/completions`.
+
+```dotenv
+STRATA_BASE_URL=http://127.0.0.1:8080
+# Only when the Strata server was started with a key:
+STRATA_API_KEY=
+```
+
+The default is `http://127.0.0.1:8080`; a trailing `/v1` is accepted. The URL
+must be loopback (`localhost`, `127.0.0.1` or `::1`), so conversation content
+stays on the machine. Redirects are refused, so a loopback server cannot
+forward a request elsewhere. The key, when set, is sent as a Bearer token to
+`/health`, `/v1/models` and chat, and never appears in API responses or logs.
+The model list shows what Strata currently serves, and
+turns generated through it are stored with `generationProvider: "strata"`.
+The last chosen provider tab is remembered in the browser.
+
 ## Runtime behavior
 
 When no existing llama.cpp URL is configured, ThreadShelf launches one managed
@@ -559,3 +581,9 @@ token count, paths, and provider IDs are bounded.
 - GPU compatibility depends on upstream release artifacts and local drivers.
 - A failed embedding update does not discard the saved exchange; the response
   reports a local indexing warning so it can be retried.
+
+## Vision
+
+Multimodal GGUFs load their matching projector and accept inline images through
+`/v1`. See [Vision setup and image requests](VISION.md). The chat composer remains
+text-only; `/v1` does not archive images.

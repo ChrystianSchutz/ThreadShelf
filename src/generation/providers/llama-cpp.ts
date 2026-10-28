@@ -3,10 +3,12 @@ import { findLlamaExecutables } from '../llama-install.js';
 import {
   getLlamaFailureContext,
   getManagedLlamaStatus,
+  llamaVisionSupported,
   withLlamaServer,
 } from '../llama-process.js';
 import { discoverGgufModels, localGgufModelName } from '../model-discovery.js';
 import { openAiCompatibleChat, openAiCompatibleChatStream } from '../openai-compatible.js';
+import { hasVisionProjector } from '../vision.js';
 import type { GenerationProvider } from '../types.js';
 
 export const createLlamaCppProvider = (fetchImpl: typeof fetch = fetch): GenerationProvider => ({
@@ -43,6 +45,15 @@ export const createLlamaCppProvider = (fetchImpl: typeof fetch = fetch): Generat
       });
       if (!response.ok) throw new Error(`llama.cpp models request failed (${response.status})`);
       const payload = (await response.json()) as { data?: readonly { id?: string }[] };
+      const props = await fetchImpl(`${config.llamaCpp.baseUrl}/props`, {
+        signal: AbortSignal.timeout(2000),
+      })
+        .then(async (response) =>
+          response.ok
+            ? ((await response.json()) as { modalities?: { vision?: boolean } })
+            : undefined,
+        )
+        .catch(() => undefined);
       return (payload.data ?? [])
         .filter((model): model is { id: string } => Boolean(model.id))
         .map((model) => ({
@@ -50,17 +61,30 @@ export const createLlamaCppProvider = (fetchImpl: typeof fetch = fetch): Generat
           name: model.id,
           provider: 'llama-cpp' as const,
           loaded: true,
+          vision: props?.modalities?.vision,
         }));
     }
-    const [models, runtime] = await Promise.all([
+    const [models, runtime, visionSupported] = await Promise.all([
       discoverGgufModels(effectiveModelDirectories(config.llamaCpp)),
       Promise.resolve(getManagedLlamaStatus()),
+      llamaVisionSupported(),
     ]);
-    return models.map((model) => ({
-      ...model,
-      loaded:
-        runtime.state !== 'stopped' && runtime.model !== undefined && model.id === runtime.model,
-    }));
+    return Promise.all(
+      models.map(async (model) => ({
+        ...model,
+        // A build without --mmproj skips the projector at launch, so the model
+        // must not be advertised (or accept images at /v1) as vision-capable.
+        vision:
+          visionSupported !== false &&
+          (await hasVisionProjector(
+            model.id,
+            effectiveModelDirectories(config.llamaCpp),
+            config.llamaCpp.projectorPaths,
+          )),
+        loaded:
+          runtime.state !== 'stopped' && runtime.model !== undefined && model.id === runtime.model,
+      })),
+    );
   },
 
   async chat(request, signal) {

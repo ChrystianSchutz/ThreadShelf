@@ -5,6 +5,13 @@ import type { GenerationModel } from './types.js';
 const MAX_MODELS = 10_000;
 const MAX_DEPTH = 8;
 
+/**
+ * A multimodal projector (`mmproj`) is a companion file, never a chat model.
+ * Matches `mmproj-model-f16.gguf` and `model-mmproj-f16.gguf` style names.
+ */
+export const isProjectorFileName = (fileName: string): boolean =>
+  /(^|[-_.])mmproj([-_.]|$)/i.test(fileName);
+
 export const localGgufModelName = (modelPath: string): string =>
   basename(modelPath, extname(modelPath));
 
@@ -37,7 +44,7 @@ export const discoverGgufModels = async (
         await walk(root, path, depth + 1);
       } else if (entry.isFile() && extname(entry.name).toLowerCase() === '.gguf') {
         const lowerName = entry.name.toLowerCase();
-        if (lowerName.startsWith('mmproj')) continue;
+        if (isProjectorFileName(lowerName)) continue;
         const shard = lowerName.match(/-(\d{5})-of-\d{5}\.gguf$/);
         if (shard && shard[1] !== '00001') continue;
         const absolute = resolve(path);

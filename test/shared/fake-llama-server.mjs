@@ -13,6 +13,10 @@ if (process.env.FAKE_LLAMA_ARGV_LOG) {
 if (args.includes('--help')) {
   process.stdout.write(
     [
+      // FAKE_LLAMA_NO_MMPROJ imitates an older build without vision support.
+      ...(process.env.FAKE_LLAMA_NO_MMPROJ
+        ? []
+        : ['--mmproj FILE                         multimodal projector']),
       '-ctk,  --cache-type-k TYPE              KV cache data type for K',
       '-ctv,  --cache-type-v TYPE              KV cache data type for V',
       '-fa,   --flash-attn [on|off|auto]       set Flash Attention use',
@@ -54,7 +58,14 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && req.url?.startsWith('/v1/')) {
     // Any other inference call echoes what arrived, so callers can assert on the relay.
     res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify({ path: req.url, model: body.model, content: 'Fake llama answer' }));
+    res.end(
+      JSON.stringify({
+        path: req.url,
+        model: body.model,
+        content: 'Fake llama answer',
+        ...(Array.isArray(body.messages?.[0]?.content) ? { messages: body.messages } : {}),
+      }),
+    );
     return;
   }
   res.statusCode = 404;

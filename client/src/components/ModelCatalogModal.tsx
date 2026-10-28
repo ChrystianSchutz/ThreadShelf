@@ -50,6 +50,7 @@ export function ModelCatalogModal({ open, onClose, onDownloaded }: ModelCatalogM
   const [detail, setDetail] = useState<CatalogModelDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  const [includeProjector, setIncludeProjector] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [progress, setProgress] = useState({ done: 0, total: 0, file: '' });
   const abortRef = useRef<AbortController | null>(null);
@@ -125,7 +126,7 @@ export function ModelCatalogModal({ open, onClose, onDownloaded }: ModelCatalogM
       try {
         let saved = '';
         await api.catalogDownload(
-          { repoId, quant },
+          { repoId, quant, includeProjector },
           (event) => {
             if (event.type === 'progress' && event.phase === 'downloading') {
               setProgress({
@@ -149,7 +150,7 @@ export function ModelCatalogModal({ open, onClose, onDownloaded }: ModelCatalogM
         abortRef.current = null;
       }
     },
-    [onDownloaded],
+    [onDownloaded, includeProjector],
   );
 
   if (!open) return null;
@@ -259,6 +260,18 @@ export function ModelCatalogModal({ open, onClose, onDownloaded }: ModelCatalogM
                         {detail.id} is gated. Accept the licence on Hugging Face, then set{' '}
                         <code>HF_TOKEN</code> in the server <code>.env</code> to download it here.
                       </p>
+                    )}
+                    {Boolean(detail?.projectors.length) && (
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={includeProjector}
+                          disabled={Boolean(downloading)}
+                          onChange={(event) => setIncludeProjector(event.target.checked)}
+                        />
+                        Include vision projector (one file, F16 when available; extra download and
+                        memory)
+                      </label>
                     )}
                     {detail?.quants.map((quant) => {
                       const busy = downloading === `${detail.id}:${quant.label}`;

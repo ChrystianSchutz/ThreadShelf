@@ -20,6 +20,7 @@ import { ModelCatalogModal } from './ModelCatalogModal';
 import { ModelCombobox } from './ModelCombobox';
 import { NumberCombobox } from './NumberCombobox';
 import { LlamaLogPanel } from './LlamaLogPanel';
+import { useUIStore } from '../store';
 import { usePrivateChatStore } from '../private-chat-memory';
 import type { InterruptedGeneration } from '../private-chat-memory';
 
@@ -41,10 +42,17 @@ interface ThreadContinuationProps {
 
 const modelLabel = (model: GenerationModel): string => {
   const size = model.sizeBytes ? ` · ${(model.sizeBytes / 1024 ** 3).toFixed(1)} GB` : '';
-  return `${model.loaded ? '● ' : ''}${model.name}${size}`;
+  return `${model.loaded ? '● ' : ''}${model.name}${size}${model.vision ? ' · vision' : ''}`;
 };
 
 const CONTEXT_SIZE_OPTIONS = [4096, 8192, 16_384, 32_768, 65_536, 131_072] as const;
+
+const emptyModelsMessage = (provider: GenerationProviderId): string =>
+  provider === 'llama-cpp'
+    ? 'No GGUF models found. Download one here or add a directory in Settings.'
+    : provider === 'strata'
+      ? 'Strata reported no model. Check that START-HERE.bat finished loading.'
+      : 'OpenRouter returned no models.';
 
 const loadInterruptedGenerations = (key: string): InterruptedGeneration[] => {
   try {
@@ -93,7 +101,9 @@ export function ThreadContinuation({
   const queryClient = useQueryClient();
   const masterPrompt = useActiveMasterPromptText();
   const [config, setConfig] = useState<GenerationConfigResponse | null>(null);
-  const [provider, setProvider] = useState<GenerationProviderId>('llama-cpp');
+  const rememberedProvider = useUIStore((state) => state.generationProvider);
+  const rememberProvider = useUIStore((state) => state.setGenerationProvider);
+  const [provider, setProvider] = useState<GenerationProviderId>(rememberedProvider);
   const [models, setModels] = useState<GenerationModel[]>([]);
   const [runtime, setRuntime] = useState<GenerationRuntimeStatus | null>(null);
   const [model, setModel] = useState('');
@@ -189,9 +199,15 @@ export function ThreadContinuation({
 
   useEffect(() => {
     const controller = new AbortController();
+    // The provider chosen last time; read once so the first load does not re-run on tab changes.
+    const initialProvider = useUIStore.getState().generationProvider;
     void Promise.all([
       api.generationConfig(controller.signal),
-      api.generationModels('llama-cpp', { signal: controller.signal }),
+      api.generationModels(initialProvider, {
+        signal: controller.signal,
+        sort: 'most-popular',
+        freeOnly: true,
+      }),
     ])
       .then(([nextConfig, response]) => {
         setConfig(nextConfig);
@@ -205,9 +221,7 @@ export function ThreadContinuation({
           response.models.find((candidate) => candidate.loaded)?.id ?? response.models[0]?.id ?? '',
         );
         if (response.models.length === 0) {
-          setError(
-            'No GGUF models found. Download one from the model menu or add a directory in Settings.',
-          );
+          setError(emptyModelsMessage(initialProvider));
         }
       })
       .catch((cause: unknown) => {
@@ -298,11 +312,7 @@ export function ThreadContinuation({
           : (response.models[0]?.id ?? '');
       });
       if (response.models.length === 0) {
-        setError(
-          selectedProvider === 'llama-cpp'
-            ? 'No GGUF models found. Download one here or add a directory in Settings.'
-            : 'OpenRouter returned no models.',
-        );
+        setError(emptyModelsMessage(selectedProvider));
       }
     } catch (cause) {
       setModels([]);
@@ -352,12 +362,17 @@ export function ThreadContinuation({
 
   const changeProvider = (next: GenerationProviderId) => {
     setProvider(next);
+    rememberProvider(next);
     setModels([]);
     setRuntime(null);
     setModel('');
     setError('');
     setProgress(
-      next === 'llama-cpp' ? 'Discovering local GGUF models…' : 'Loading live OpenRouter models…',
+      next === 'llama-cpp'
+        ? 'Discovering local GGUF models…'
+        : next === 'strata'
+          ? 'Asking Strata which model it serves…'
+          : 'Loading live OpenRouter models…',
     );
     void loadModels(next, { sort: openRouterSort, freeOnly });
   };
@@ -446,7 +461,9 @@ export function ThreadContinuation({
     setProgress(
       provider === 'llama-cpp'
         ? 'Preparing llama.cpp. The first model load can take a while…'
-        : 'Preparing an OpenRouter request…',
+        : provider === 'strata'
+          ? 'Preparing a Strata request…'
+          : 'Preparing an OpenRouter request…',
     );
     const controller = new AbortController();
     requestController.current = controller;
@@ -519,11 +536,18 @@ export function ThreadContinuation({
               contextSize: contextWindowTokens,
               detail: 'The local model is loaded and ready.',
             }
-          : {
-              state: 'remote',
-              model: response.model,
-              detail: 'The response ran through OpenRouter.',
-            },
+          : provider === 'strata'
+            ? {
+                state: 'external',
+                model: response.model,
+                contextSize: contextWindowTokens,
+                detail: 'The response ran through the local Strata server.',
+              }
+            : {
+                state: 'remote',
+                model: response.model,
+                detail: 'The response ran through OpenRouter.',
+              },
       );
       if (provider === 'llama-cpp') {
         setModels((current) =>
@@ -935,6 +959,15 @@ export function ThreadContinuation({
                   >
                     OpenRouter · external
                   </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={provider === 'strata'}
+                    data-active={provider === 'strata'}
+                    onClick={() => provider !== 'strata' && changeProvider('strata')}
+                  >
+                    Strata · local
+                  </button>
                 </div>
 
                 <div className="model-popover-pick">
@@ -1009,7 +1042,9 @@ export function ThreadContinuation({
                       {models.length.toLocaleString()}{' '}
                       {provider === 'llama-cpp'
                         ? 'GGUF models discovered'
-                        : 'live models available'}
+                        : provider === 'strata'
+                          ? 'model served by Strata'
+                          : 'live models available'}
                     </strong>
                     <span title={selectedModel?.path || selectedModel?.id}>
                       {selectedModel
@@ -1020,6 +1055,7 @@ export function ThreadContinuation({
                     {runtime && <span>{runtime.detail}</span>}
                   </div>
                   {runtime &&
+                    provider !== 'strata' &&
                     (runtime.state === 'starting' ||
                       runtime.state === 'ready' ||
                       (runtime.state === 'external' && Boolean(runtime.model))) && (
@@ -1097,7 +1133,9 @@ export function ThreadContinuation({
             <span className="composer-hint">
               {provider === 'llama-cpp'
                 ? 'Loopback-only llama-server'
-                : 'Sent off-device via OpenRouter'}
+                : provider === 'strata'
+                  ? 'Loopback-only Strata server'
+                  : 'Sent off-device via OpenRouter'}
             </span>
             {sending ? (
               <button className="btn danger" onClick={() => requestController.current?.abort()}>
